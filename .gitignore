@@ -1,0 +1,9 @@
+out/
+*.o
+*.a
+*.so
+.cproject
+.project
+.settings/
+*.swp
+/Debug/
