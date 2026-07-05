@@ -1,0 +1,9 @@
+# Use C++17 (superset of C++11 that the project was written for)
+build --cxxopt=-std=c++17
+
+# Enable common warnings
+build --cxxopt=-Wall
+build --cxxopt=-Wextra
+
+# Colored output
+build --color=yes

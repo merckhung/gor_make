@@ -7,3 +7,10 @@ out/
 .settings/
 *.swp
 /Debug/
+
+# Bazel
+bazel-bin
+bazel-out
+bazel-testlogs
+bazel-gor_make
+.module_cache
