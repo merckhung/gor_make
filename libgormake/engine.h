@@ -38,6 +38,7 @@ struct MakeOptions {
   bool ignoreErrors = false;            // -i: ignore recipe errors
   bool alwaysMake = false;              // -B: unconditionally rebuild
   bool printDir = false;               // -w: print directory
+  bool jsonOutput = false;              // --json: output relationship JSON
   int jobs = 1;                         // -j: parallel jobs (1=serial)
 };
 
@@ -48,6 +49,9 @@ class Engine {
 
   // Run the full make pipeline. Returns 0 on success, non-zero on error.
   int Run(const MakeOptions& opts);
+
+  // Output all rules and their relationships as JSON to stdout.
+  void OutputJson() const;
 
  private:
   // Parse a makefile and populate vars_ and rules_.

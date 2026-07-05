@@ -23,6 +23,7 @@
 
 #include "engine.h"
 #include "bpengine.h"
+#include "mkscanner.h"
 #include "gormake.h"
 
 static void usage() {
@@ -99,6 +100,10 @@ int main(int argc, char** argv) {
   gormake::MakeOptions opts;
   gormake::BpBuildOptions bpOpts;
   bool bpMode = false;
+  bool mkMode = false;
+  bool mkJsonOutput = false;
+  std::string mkFile;
+  std::string mkDir;
 
 
   // Parse arguments
@@ -162,6 +167,26 @@ int main(int argc, char** argv) {
     } else if (arg.substr(0, 10) == "--bp-file=") {
       bpMode = true;
       bpOpts.bpFilePath = arg.substr(10);
+    } else if (arg == "--json") {
+      bpOpts.jsonOutput = true;
+      opts.jsonOutput = true;
+      mkJsonOutput = true;
+    } else if (arg == "--mk") {
+      mkMode = true;
+    } else if (arg.substr(0, 9) == "--mk-file") {
+      mkMode = true;
+      if (arg.size() > 9 && arg[9] == '=') {
+        mkFile = arg.substr(10);
+      } else if (i + 1 < argc) {
+        mkFile = argv[++i];
+      }
+    } else if (arg.substr(0, 8) == "--mk-dir") {
+      mkMode = true;
+      if (arg.size() > 8 && arg[8] == '=') {
+        mkDir = arg.substr(9);
+      } else if (i + 1 < argc) {
+        mkDir = argv[++i];
+      }
     } else if (arg == "--clean") {
       if (bpMode) {
         bpOpts.clean = true;
@@ -181,6 +206,24 @@ int main(int argc, char** argv) {
       bpOpts.goals.push_back(arg);
     }
     i++;
+  }
+
+  if (mkMode) {
+    gormake::MkScanner scanner;
+    if (!mkFile.empty()) {
+      scanner.ScanFile(mkFile);
+    } else if (!mkDir.empty()) {
+      scanner.ScanDirectory(mkDir);
+    } else if (std::ifstream("Android.mk").good()) {
+      scanner.ScanFile("Android.mk");
+    } else {
+      std::cerr << "gor_make: No Android.mk file found.\n";
+      return 1;
+    }
+    if (mkJsonOutput) {
+      scanner.OutputJson();
+    }
+    return 0;
   }
 
   if (bpMode) {

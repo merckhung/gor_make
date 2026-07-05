@@ -212,6 +212,12 @@ int Engine::Run(const MakeOptions& opts) {
     return 2;
   }
 
+  // JSON output mode: print rule relationships and exit
+  if (opts.jsonOutput) {
+    OutputJson();
+    return 0;
+  }
+
   // Determine goals
   std::vector<std::string> goals = opts.goals;
   if (goals.empty()) {
@@ -857,6 +863,137 @@ long Engine::GetFileMtime(const std::string& path) const {
   struct stat st;
   if (stat(path.c_str(), &st) != 0) return 0;
   return st.st_mtime;
+}
+
+// Helper: escape a string for JSON output
+static std::string MkJsonEscape(const std::string& s) {
+  std::string result;
+  for (char c : s) {
+    switch (c) {
+      case '"': result += "\\\""; break;
+      case '\\': result += "\\\\"; break;
+      case '\n': result += "\\n"; break;
+      case '\r': result += "\\r"; break;
+      case '\t': result += "\\t"; break;
+      default:
+        if ((unsigned char)c < 0x20) {
+          char buf[8];
+          snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)c);
+          result += buf;
+        } else {
+          result += c;
+        }
+    }
+  }
+  return result;
+}
+
+static void MkOutputJsonArray(const std::vector<std::string>& arr) {
+  printf("[");
+  for (size_t i = 0; i < arr.size(); ++i) {
+    if (i > 0) printf(", ");
+    printf("\"%s\"", MkJsonEscape(arr[i]).c_str());
+  }
+  printf("]");
+}
+
+void Engine::OutputJson() const {
+  const auto& allRules = rules_.GetAllRules();
+  const auto& patternRules = rules_.GetPatternRules();
+
+  printf("{\n");
+  printf("  \"format\": \"makefile\",\n");
+  printf("  \"makefile\": \"%s\",\n", MkJsonEscape(opts_ ? opts_->makefilePath : "").c_str());
+  printf("  \"target_count\": %zu,\n", allRules.size() + patternRules.size());
+  printf("  \"targets\": [\n");
+
+  bool first = true;
+  for (const auto& [target, ruleList] : allRules) {
+    for (const auto* rule : ruleList) {
+      if (!first) printf(",\n");
+      first = false;
+
+      printf("    {\n");
+      printf("      \"name\": \"%s\",\n", MkJsonEscape(target).c_str());
+      printf("      \"type\": \"%s\",\n",
+             rules_.IsPhony(target) ? "phony" : "explicit");
+      printf("      \"is_pattern\": false,\n");
+
+      // Collect all targets for this rule
+      std::vector<std::string> targets;
+      for (const auto& t : rule->targets) targets.push_back(t);
+      printf("      \"targets\": ");
+      MkOutputJsonArray(targets);
+      printf(",\n");
+
+      printf("      \"prereqs\": ");
+      MkOutputJsonArray(rule->prereqs);
+      printf(",\n");
+
+      printf("      \"order_only_prereqs\": ");
+      MkOutputJsonArray(rule->orderOnlyPrereqs);
+      printf(",\n");
+
+      // Output recipe commands
+      printf("      \"recipes\": [");
+      for (size_t i = 0; i < rule->recipes.size(); ++i) {
+        if (i > 0) printf(", ");
+        printf("\"%s\"", MkJsonEscape(rule->recipes[i].text).c_str());
+      }
+      printf("],\n");
+
+      printf("      \"is_double_colon\": %s,\n",
+             rule->isDoubleColon ? "true" : "false");
+      printf("      \"is_phony\": %s\n",
+             rules_.IsPhony(target) ? "true" : "false");
+
+      printf("    }");
+    }
+  }
+
+  // Output pattern rules
+  for (const auto& rule : patternRules) {
+    if (!first) printf(",\n");
+    first = false;
+
+    printf("    {\n");
+    printf("      \"name\": \"");
+    for (size_t i = 0; i < rule->targets.size(); ++i) {
+      if (i > 0) printf(", ");
+      printf("%s", MkJsonEscape(rule->targets[i]).c_str());
+    }
+    printf("\",\n");
+    printf("      \"type\": \"pattern\",\n");
+    printf("      \"is_pattern\": true,\n");
+
+    printf("      \"targets\": ");
+    MkOutputJsonArray(rule->targets);
+    printf(",\n");
+
+    printf("      \"prereqs\": ");
+    MkOutputJsonArray(rule->prereqs);
+    printf(",\n");
+
+    printf("      \"order_only_prereqs\": ");
+    MkOutputJsonArray(rule->orderOnlyPrereqs);
+    printf(",\n");
+
+    printf("      \"recipes\": [");
+    for (size_t i = 0; i < rule->recipes.size(); ++i) {
+      if (i > 0) printf(", ");
+      printf("\"%s\"", MkJsonEscape(rule->recipes[i].text).c_str());
+    }
+    printf("],\n");
+
+    printf("      \"is_double_colon\": %s,\n",
+           rule->isDoubleColon ? "true" : "false");
+    printf("      \"is_phony\": false\n");
+
+    printf("    }");
+  }
+
+  printf("\n  ]\n");
+  printf("}\n");
 }
 
 }  // namespace gormake

@@ -39,6 +39,7 @@ struct BpBuildOptions {
   bool verbose = false;                  // -v: show all commands
   bool keepGoing = false;                 // -k: keep going on errors
   bool clean = false;                    // clean build outputs
+  bool jsonOutput = false;               // --json: output relationship JSON
   std::string buildDir = "out";          // output directory
   std::string arch = "x86_64";           // target architecture
   std::vector<std::string> cmdLineVars;  // variable overrides
@@ -90,9 +91,15 @@ class BpEngine {
   // Run the build. Returns 0 on success, non-zero on error.
   int Run(const BpBuildOptions& opts);
 
+  // Output all modules and their relationships as JSON to stdout.
+  void OutputJson() const;
+
  private:
   // Parse all Android.bp files in the tree starting from the given path.
   bool ParseBpFiles(const std::string& rootPath);
+
+  // Parse all Android.bp files in a directory tree.
+  void ParseBpDirectory(const std::string& dirPath);
 
   // Parse a single Android.bp file.
   bool ParseSingleBp(const std::string& path);

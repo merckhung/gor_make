@@ -142,8 +142,20 @@ int BpEngine::Run(const BpBuildOptions& opts) {
   // Parse Android.bp files
   std::string bpPath = opts.bpFilePath;
   if (!FileExists(bpPath)) {
-    // Try to find Android.bp in current directory
-    if (FileExists("Android.bp")) {
+    // Check if it's a directory
+    struct stat st;
+    if (stat(bpPath.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+      // It's a directory, look for Android.bp inside it
+      std::string dirPath = bpPath;
+      if (!dirPath.empty() && dirPath.back() == '/') dirPath.pop_back();
+      if (FileExists(dirPath + "/Android.bp")) {
+        bpPath = dirPath + "/Android.bp";
+      } else {
+        // Walk the directory for Android.bp files
+        ParseBpDirectory(dirPath);
+        bpPath = "";  // Already parsed
+      }
+    } else if (FileExists("Android.bp")) {
       bpPath = "Android.bp";
     } else {
       fprintf(stderr, "gor_make: *** No Android.bp file found.\n");
@@ -151,10 +163,12 @@ int BpEngine::Run(const BpBuildOptions& opts) {
     }
   }
 
-  if (!ParseBpFiles(bpPath)) {
-    fprintf(stderr, "gor_make: *** Failed to parse Android.bp: %s\n",
-            bpPath.c_str());
-    return 1;
+  if (!bpPath.empty()) {
+    if (!ParseBpFiles(bpPath)) {
+      fprintf(stderr, "gor_make: *** Failed to parse Android.bp: %s\n",
+              bpPath.c_str());
+      return 1;
+    }
   }
 
   if (modules_.empty()) {
@@ -164,6 +178,12 @@ int BpEngine::Run(const BpBuildOptions& opts) {
 
   // Apply defaults
   ApplyDefaults();
+
+  // JSON output mode: print module relationships and exit
+  if (opts.jsonOutput) {
+    OutputJson();
+    return 0;
+  }
 
   // Determine goals
   std::vector<std::string> goals = opts.goals;
@@ -228,6 +248,20 @@ bool BpEngine::ParseBpFiles(const std::string& rootPath) {
   return true;
 }
 
+void BpEngine::ParseBpDirectory(const std::string& dirPath) {
+  // Walk the directory tree and parse all Android.bp files
+  for (auto& entry : fs::recursive_directory_iterator(dirPath)) {
+    if (entry.path().filename() == "Android.bp") {
+      std::string entryStr = entry.path().string();
+      // Skip common output/build directories
+      if (entryStr.find("/out/") != std::string::npos) continue;
+      if (entryStr.find("/bazel-") != std::string::npos) continue;
+      if (entryStr.find("/.git/") != std::string::npos) continue;
+      ParseSingleBp(entryStr);
+    }
+  }
+}
+
 bool BpEngine::ParseSingleBp(const std::string& path) {
   // Avoid parsing the same file twice
   std::string absPath = fs::canonical(path).string();
@@ -271,28 +305,48 @@ std::unique_ptr<BpBuildModule> BpEngine::ConvertModule(
   // Get name
   auto nameIt = bpModule.properties.find("name");
   if (nameIt == bpModule.properties.end() || !nameIt->second.IsString()) {
-    fprintf(stderr, "gor_make: Module without name property, skipping.\n");
+    // Silently skip non-buildable module types that don't have names
+    // (package, license, license_kind, etc.)
     return nullptr;
   }
   mod->name = nameIt->second.AsString();
 
-  // Set module type flags
-  if (bpModule.type == "cc_binary" || bpModule.type == "cc_test_binary") {
+  // Set module type flags based on type
+  const std::string& t = bpModule.type;
+  if (t == "cc_binary" || t == "cc_test_binary") {
     mod->isBinary = true;
-    if (bpModule.type == "cc_test_binary") mod->isTest = true;
-  } else if (bpModule.type == "cc_library" || bpModule.type == "cc_library_shared") {
+    if (t == "cc_test_binary") mod->isTest = true;
+  } else if (t == "cc_library" || t == "cc_library_shared") {
     mod->isShared = true;
-  } else if (bpModule.type == "cc_library_static" || bpModule.type == "cc_library") {
+  } else if (t == "cc_library_static") {
     mod->isStatic = true;
-  } else if (bpModule.type == "cc_test") {
+  } else if (t == "cc_test") {
     mod->isTest = true;
     mod->isBinary = true;
-  } else if (bpModule.type == "genrule") {
+  } else if (t == "cc_benchmark") {
+    mod->isBinary = true;
+  } else if (t == "genrule") {
     // Handle genrule
-  } else if (bpModule.type == "cc_defaults" || bpModule.type == "filegroup") {
-    // These are handled separately, not build targets
+  } else if (t == "cc_defaults" || t == "filegroup" ||
+             t == "package" || t == "license" || t == "license_kind" ||
+             t == "android_app" || t == "android_test" ||
+             t == "java_library" || t == "java_test" ||
+             t == "prebuilt_etc" || t == "prebuilt_build_header" ||
+             t == "cc_prebuilt_library_shared" ||
+             t == "cc_prebuilt_library_static" ||
+             t == "cc_prebuilt_binary" ||
+             t == "prebuilt_font" || t == "sh_binary" ||
+             t == "sh_test" || t == "python_test" ||
+             t == "python_binary_host" || t == "java_binary" ||
+             t == "java_library_host" || t == "java_test_host" ||
+             t == "cc_library_host" || t == "cc_binary_host" ||
+             t == "cc_test_host" || t == "cc_benchmark_host" ||
+             t == "soong_config_module_type" || t == "soong_config_string_variable" ||
+             t == "soong_config_bool_variable") {
+    // These are handled separately or not build targets for our engine
     return nullptr;
   }
+  // For any other unknown type, keep the module but don't set flags
 
   // Extract properties
   auto it = bpModule.properties.find("srcs");
@@ -899,6 +953,111 @@ bool BpEngine::ExecuteCmd(const std::string& cmd, bool silent) {
     return WEXITSTATUS(status) == 0;
   }
   return false;
+}
+
+// Helper: escape a string for JSON output
+static std::string JsonEscape(const std::string& s) {
+  std::string result;
+  for (char c : s) {
+    switch (c) {
+      case '"': result += "\\\""; break;
+      case '\\': result += "\\\\"; break;
+      case '\n': result += "\\n"; break;
+      case '\r': result += "\\r"; break;
+      case '\t': result += "\\t"; break;
+      default:
+        if ((unsigned char)c < 0x20) {
+          char buf[8];
+          snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)c);
+          result += buf;
+        } else {
+          result += c;
+        }
+    }
+  }
+  return result;
+}
+
+// Helper: output a JSON string array
+static void OutputJsonArray(FILE* f, const char* indent,
+                            const std::vector<std::string>& arr) {
+  fprintf(f, "[");
+  for (size_t i = 0; i < arr.size(); ++i) {
+    if (i > 0) fprintf(f, ", ");
+    fprintf(f, "\"%s\"", JsonEscape(arr[i]).c_str());
+  }
+  fprintf(f, "]");
+}
+
+void BpEngine::OutputJson() const {
+  printf("{\n");
+  printf("  \"format\": \"android.bp\",\n");
+  printf("  \"module_count\": %zu,\n", modules_.size());
+  printf("  \"modules\": [\n");
+
+  bool first = true;
+  for (const auto& [name, mod] : modules_) {
+    if (!first) printf(",\n");
+    first = false;
+
+    printf("    {\n");
+    printf("      \"name\": \"%s\",\n", JsonEscape(mod->name).c_str());
+    printf("      \"type\": \"%s\",\n", JsonEscape(mod->type).c_str());
+    printf("      \"src_dir\": \"%s\",\n", JsonEscape(mod->srcDir).c_str());
+    printf("      \"is_binary\": %s,\n", mod->isBinary ? "true" : "false");
+    printf("      \"is_static\": %s,\n", mod->isStatic ? "true" : "false");
+    printf("      \"is_shared\": %s,\n", mod->isShared ? "true" : "false");
+    printf("      \"is_test\": %s,\n", mod->isTest ? "true" : "false");
+
+    printf("      \"srcs\": ");
+    OutputJsonArray(stdout, "      ", mod->srcs);
+    printf(",\n");
+
+    printf("      \"shared_libs\": ");
+    OutputJsonArray(stdout, "      ", mod->sharedLibs);
+    printf(",\n");
+
+    printf("      \"static_libs\": ");
+    OutputJsonArray(stdout, "      ", mod->staticLibs);
+    printf(",\n");
+
+    printf("      \"whole_static_libs\": ");
+    OutputJsonArray(stdout, "      ", mod->wholeStaticLibs);
+    printf(",\n");
+
+    printf("      \"header_libs\": ");
+    OutputJsonArray(stdout, "      ", mod->headerLibs);
+    printf(",\n");
+
+    printf("      \"cflags\": ");
+    OutputJsonArray(stdout, "      ", mod->cflags);
+    printf(",\n");
+
+    printf("      \"cppflags\": ");
+    OutputJsonArray(stdout, "      ", mod->cppflags);
+    printf(",\n");
+
+    printf("      \"ldflags\": ");
+    OutputJsonArray(stdout, "      ", mod->ldflags);
+    printf(",\n");
+
+    printf("      \"include_dirs\": ");
+    OutputJsonArray(stdout, "      ", mod->includeDirs);
+    printf(",\n");
+
+    printf("      \"local_include_dirs\": ");
+    OutputJsonArray(stdout, "      ", mod->localIncludeDirs);
+    printf(",\n");
+
+    printf("      \"export_include_dirs\": ");
+    OutputJsonArray(stdout, "      ", mod->exportIncludeDirs);
+    printf("\n");
+
+    printf("    }");
+  }
+
+  printf("\n  ]\n");
+  printf("}\n");
 }
 
 }  // namespace gormake
