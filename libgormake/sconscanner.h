@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <map>
+#include <unordered_set>
 #include <string>
 #include <vector>
 
@@ -86,6 +87,9 @@ class SconScanner {
                       const std::string& srcFile) const;
 
   std::vector<SconTarget> targets_;
+
+  // Track visited files to avoid infinite recursion
+  std::unordered_set<std::string> visitedFiles_;
 
   // Environment variables (simulated SCons env)
   std::vector<std::string> envCflags_;

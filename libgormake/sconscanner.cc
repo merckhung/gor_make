@@ -106,6 +106,10 @@ SconScanner::SconScanner() {}
 SconScanner::~SconScanner() {}
 
 bool SconScanner::ScanFile(const std::string& path) {
+  // Avoid re-scanning the same file (prevents infinite recursion)
+  if (visitedFiles_.count(path) > 0) return true;
+  visitedFiles_.insert(path);
+
   std::ifstream file(path);
   if (!file.is_open()) return false;
 
