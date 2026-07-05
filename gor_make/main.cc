@@ -16,11 +16,13 @@
 
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
 
 #include "engine.h"
+#include "bpengine.h"
 #include "gormake.h"
 
 static void usage() {
@@ -64,6 +66,10 @@ static void usage() {
 "  -W FILE, --what-if=FILE, --new-file=FILE, --assume-new=FILE\n"
 "                              Consider FILE to be infinitely new.\n"
 "  --warn-undefined-variables  Warn when an undefined variable is referenced.\n"
+"  --bp                        Build using Android.bp (Blueprint) files.\n"
+"  --bp-file=FILE              Use FILE as the Android.bp file.\n"
+"  --clean                     Remove all build outputs.\n"
+"  -v, --verbose               Show all commands (not just recipe lines).\n"
 "\n"
 "  Report bugs to " GM_AUTHOR_NAME "\n";
 }
@@ -91,6 +97,9 @@ static bool IsVarAssignment(const std::string& s) {
 
 int main(int argc, char** argv) {
   gormake::MakeOptions opts;
+  gormake::BpBuildOptions bpOpts;
+  bool bpMode = false;
+
 
   // Parse arguments
   int i = 1;
@@ -148,6 +157,20 @@ int main(int argc, char** argv) {
       opts.keepGoing = false;
     } else if (arg == "--no-print-directory") {
       opts.printDir = false;
+    } else if (arg == "--bp") {
+      bpMode = true;
+    } else if (arg.substr(0, 10) == "--bp-file=") {
+      bpMode = true;
+      bpOpts.bpFilePath = arg.substr(10);
+    } else if (arg == "--clean") {
+      if (bpMode) {
+        bpOpts.clean = true;
+      } else {
+        // Will be handled by make engine
+      }
+    } else if (arg == "-v" || arg == "--verbose") {
+      opts.silent = false;  // verbose is opposite of silent
+      bpOpts.verbose = true;
     } else if (arg[0] == '-' && arg.size() > 1) {
       // Unknown option, skip
     } else if (IsVarAssignment(arg)) {
@@ -155,8 +178,23 @@ int main(int argc, char** argv) {
     } else {
       // Target
       opts.goals.push_back(arg);
+      bpOpts.goals.push_back(arg);
     }
     i++;
+  }
+
+  if (bpMode) {
+    // Check if Android.bp exists
+    if (bpOpts.bpFilePath == "Android.bp" && !std::ifstream("Android.bp").good()) {
+      std::cerr << "gor_make: No Android.bp file found.\n";
+      return 1;
+    }
+    gormake::BpEngine bpEngine;
+    int ret = bpEngine.Run(bpOpts);
+    if (ret != 0) {
+      std::cerr << "gor_make: *** Build failed.\n";
+    }
+    return ret;
   }
 
   gormake::Engine engine;
