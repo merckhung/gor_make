@@ -1,0 +1,11 @@
+# Simple SCons build file for calculator demo
+
+env = Environment()
+env.Append(CPPPATH=['src'])
+env.Append(CCFLAGS=['-Wall', '-O2'])
+
+# Build static library
+env.StaticLibrary('math', ['src/math.cc'])
+
+# Build executable
+env.Program('calculator', ['src/main.cc'], LIBS=['math'])

@@ -26,6 +26,7 @@
 #include "cmakescanner.h"
 #include "gnscanner.h"
 #include "mkscanner.h"
+#include "sconscanner.h"
 #include "gormake.h"
 
 static void usage() {
@@ -114,6 +115,10 @@ int main(int argc, char** argv) {
   bool cmakeJsonOutput = false;
   std::string cmakeFile;
   std::string cmakeDir;
+  bool sconsMode = false;
+  bool sconsJsonOutput = false;
+  std::string sconsFile;
+  std::string sconsDir;
 
 
   // Parse arguments
@@ -183,6 +188,7 @@ int main(int argc, char** argv) {
       mkJsonOutput = true;
       gnJsonOutput = true;
       cmakeJsonOutput = true;
+      sconsJsonOutput = true;
     } else if (arg == "--mk") {
       mkMode = true;
     } else if (arg.substr(0, 9) == "--mk-file") {
@@ -230,6 +236,22 @@ int main(int argc, char** argv) {
         cmakeDir = arg.substr(12);
       } else if (i + 1 < argc) {
         cmakeDir = argv[++i];
+      }
+    } else if (arg == "--scons") {
+      sconsMode = true;
+    } else if (arg.substr(0, 12) == "--scons-file") {
+      sconsMode = true;
+      if (arg.size() > 12 && arg[12] == '=') {
+        sconsFile = arg.substr(13);
+      } else if (i + 1 < argc) {
+        sconsFile = argv[++i];
+      }
+    } else if (arg.substr(0, 11) == "--scons-dir") {
+      sconsMode = true;
+      if (arg.size() > 11 && arg[11] == '=') {
+        sconsDir = arg.substr(12);
+      } else if (i + 1 < argc) {
+        sconsDir = argv[++i];
       }
     } else if (arg == "--clean") {
       if (bpMode) {
@@ -305,6 +327,28 @@ int main(int argc, char** argv) {
       return 1;
     }
     if (cmakeJsonOutput) {
+      scanner.OutputJson();
+    } else {
+      return scanner.BuildAll();
+    }
+    return 0;
+  }
+
+  if (sconsMode) {
+    gormake::SconScanner scanner;
+    if (!sconsFile.empty()) {
+      scanner.ScanFile(sconsFile);
+    } else if (!sconsDir.empty()) {
+      scanner.ScanDirectory(sconsDir);
+    } else if (std::ifstream("SConstruct").good()) {
+      scanner.ScanFile("SConstruct");
+    } else if (std::ifstream("SConscript").good()) {
+      scanner.ScanFile("SConscript");
+    } else {
+      std::cerr << "gor_make: No SConstruct/SConscript file found.\n";
+      return 1;
+    }
+    if (sconsJsonOutput) {
       scanner.OutputJson();
     } else {
       return scanner.BuildAll();
