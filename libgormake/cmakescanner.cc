@@ -113,10 +113,18 @@ bool CmakeScanner::ScanFile(const std::string& path) {
       pendingLine_ = line;
     }
 
-    // Count parens to detect multi-line commands
-    for (char c : pendingLine_) {
-      if (c == '(') parenDepth_++;
-      else if (c == ')') parenDepth_ = (parenDepth_ > 0) ? parenDepth_ - 1 : 0;
+    // Recompute paren depth from scratch (string-aware)
+    // to handle multi-line commands correctly.
+    parenDepth_ = 0;
+    bool inString = false;
+    for (size_t i = 0; i < pendingLine_.size(); ++i) {
+      char c = pendingLine_[i];
+      if (c == '"' && (i == 0 || pendingLine_[i - 1] != '\\')) {
+        inString = !inString;
+      } else if (!inString) {
+        if (c == '(') parenDepth_++;
+        else if (c == ')') parenDepth_ = (parenDepth_ > 0) ? parenDepth_ - 1 : 0;
+      }
     }
 
     if (parenDepth_ > 0) continue;
@@ -260,39 +268,20 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
   auto argList = ParseArgs(args);
   if (argList.empty()) return;
 
-  // Handle conditionals
+  // Handle conditionals — always process all branches (lenient mode).
+  // We're scanning, not evaluating CMake logic, so we want to see
+  // targets in both if and else branches.
   if (cmd == "if") {
-    // Simplified: assume true
     condStack_.push_back(true);
-    active_ = true;
-    for (bool v : condStack_) {
-      if (!v) { active_ = false; break; }
-    }
     return;
   } else if (cmd == "elseif") {
-    if (!condStack_.empty()) condStack_.back() = false;
-    active_ = true;
-    for (bool v : condStack_) {
-      if (!v) { active_ = false; break; }
-    }
     return;
   } else if (cmd == "else") {
-    if (!condStack_.empty()) condStack_.back() = !condStack_.back();
-    active_ = true;
-    for (bool v : condStack_) {
-      if (!v) { active_ = false; break; }
-    }
     return;
   } else if (cmd == "endif") {
     if (!condStack_.empty()) condStack_.pop_back();
-    active_ = true;
-    for (bool v : condStack_) {
-      if (!v) { active_ = false; break; }
-    }
     return;
   }
-
-  if (!active_) return;
 
   // Handle target creation commands
   if (cmd == "add_executable") {

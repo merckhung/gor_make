@@ -192,7 +192,7 @@ int main(int argc, char** argv) {
       } else if (i + 1 < argc) {
         mkFile = argv[++i];
       }
-    } else if (arg == "--mk-dir") {
+    } else if (arg.substr(0, 8) == "--mk-dir") {
       mkMode = true;
       if (arg.size() > 8 && arg[8] == '=') {
         mkDir = arg.substr(9);

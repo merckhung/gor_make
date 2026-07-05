@@ -24,6 +24,7 @@
 #include <fstream>
 #include <iostream>
 #include <sys/stat.h>
+#include <unordered_set>
 
 namespace gormake {
 
@@ -103,22 +104,23 @@ static void OutputJsonArray(const std::vector<std::string>& arr) {
   printf("]");
 }
 
-// ---------------------------------------------------------------------------
-// Known GN target types and property names
-// ---------------------------------------------------------------------------
-
-static const char* kTargetTypes[] = {
-    "executable",      "static_library", "shared_library",
-    "source_set",      "group",          "config",
-    "action",          "action_foreach", "template",
-    "test_only",       "component",      "loadable_module",
-};
-
 static bool IsTargetType(const std::string& name) {
-  for (const char* t : kTargetTypes) {
-    if (name == t) return true;
+  // Accept any identifier that's not a GN keyword/control statement.
+  // GN has many target types beyond the basic ones: rust_static_library,
+  // buildflag_header, java_library, android_library, etc.
+  if (name.empty()) return false;
+
+  static const std::unordered_set<std::string> kKeywords = {
+    "if", "else", "for", "foreach", "import", "template",
+    "assert", "print", "defined", "not", "and", "or",
+  };
+  if (kKeywords.count(name) > 0) return false;
+
+  // Must be a valid identifier (letters, digits, underscores)
+  for (char c : name) {
+    if (!isalnum(c) && c != '_') return false;
   }
-  return false;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
