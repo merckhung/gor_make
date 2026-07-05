@@ -111,10 +111,12 @@ class BpParser {
     TOK_RBRACE,    // }
     TOK_LBRACKET,  // [
     TOK_RBRACKET,  // ]
-    TOK_COLON,      // :
+    TOK_COLON,     // :
     TOK_COMMA,     // ,
     TOK_PLUS,      // +
     TOK_ASSIGN,    // =
+    TOK_LPAREN,    // (
+    TOK_RPAREN,    // )
   };
 
   struct Token {
@@ -150,6 +152,12 @@ class BpParser {
 
   // Parse a map literal: { k1: v1, k2: v2, ... }
   bool ParseMap(BpValue* value);
+
+  // Parse a function call: ident(args). Skips the arguments and returns NONE.
+  bool ParseFunctionCall(BpValue* value);
+
+  // Skip tokens until the matching closing paren (handles nesting).
+  bool SkipParenthesized();
 
   // ---- Token helpers ----
   bool Peek(TokenType type) const;

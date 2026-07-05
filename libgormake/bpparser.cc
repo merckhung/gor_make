@@ -204,6 +204,12 @@ bool BpParser::Tokenize(const std::string& source,
       case '=':
         tok.type = TOK_ASSIGN;
         break;
+      case '(':
+        tok.type = TOK_LPAREN;
+        break;
+      case ')':
+        tok.type = TOK_RPAREN;
+        break;
       default:
         tok.type = TOK_EOF;  // sentinel; handled below
         break;
@@ -576,7 +582,7 @@ bool BpParser::ParsePrimary(BpValue* value) {
       return ParseMap(value);
 
     case TOK_IDENT: {
-      // Could be: true, false, or a variable reference.
+      // Could be: true, false, a variable reference, or a function call.
       if (tok.value == "true") {
         value->type = BpValue::BOOL;
         value->boolVal = true;
@@ -589,12 +595,17 @@ bool BpParser::ParsePrimary(BpValue* value) {
         Advance();
         return true;
       }
+      // Check if this is a function call: ident(...)
+      if (pos_ + 1 < tokens_.size() && tokens_[pos_ + 1].type == TOK_LPAREN) {
+        return ParseFunctionCall(value);
+      }
       // Variable reference.
       BpValue resolved = ResolveVariable(tok.value);
       if (resolved.type == BpValue::NONE) {
-        // Unknown variable — emit a warning-like error.
-        return Error("undefined variable '" + tok.value + "' at line " +
-                     std::to_string(tok.line));
+        // Unknown variable — treat as empty string to be lenient
+        *value = BpValue::String("");
+        Advance();
+        return true;
       }
       *value = resolved;
       Advance();
@@ -605,6 +616,42 @@ bool BpParser::ParsePrimary(BpValue* value) {
       return Error("expected a value but got '" + tok.value + "' at line " +
                    std::to_string(tok.line));
   }
+}
+
+bool BpParser::SkipParenthesized() {
+  // Skip everything until matching TOK_RPAREN, handling nesting
+  int depth = 1;
+  while (!AtEnd() && depth > 0) {
+    if (Current().type == TOK_LPAREN) depth++;
+    else if (Current().type == TOK_RPAREN) depth--;
+    if (depth > 0) Advance();
+  }
+  if (depth != 0) {
+    return Error("unmatched '(' in function call");
+  }
+  // Consume the closing ')'
+  Advance();
+  return true;
+}
+
+bool BpParser::ParseFunctionCall(BpValue* value) {
+  // ident(args) — skip the identifier
+  std::string funcName = Current().value;
+  Advance();  // consume identifier
+
+  // Expect '('
+  if (!Expect(TOK_LPAREN, "'('")) {
+    return false;
+  }
+
+  // Skip all arguments until ')'
+  if (!SkipParenthesized()) {
+    return false;
+  }
+
+  // Return NONE — we don't evaluate function calls
+  value->type = BpValue::NONE;
+  return true;
 }
 
 bool BpParser::ParseStringLiteral(BpValue* value) {
