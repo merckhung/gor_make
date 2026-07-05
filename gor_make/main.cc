@@ -23,6 +23,8 @@
 
 #include "engine.h"
 #include "bpengine.h"
+#include "cmakescanner.h"
+#include "gnscanner.h"
 #include "mkscanner.h"
 #include "gormake.h"
 
@@ -104,6 +106,14 @@ int main(int argc, char** argv) {
   bool mkJsonOutput = false;
   std::string mkFile;
   std::string mkDir;
+  bool gnMode = false;
+  bool gnJsonOutput = false;
+  std::string gnFile;
+  std::string gnDir;
+  bool cmakeMode = false;
+  bool cmakeJsonOutput = false;
+  std::string cmakeFile;
+  std::string cmakeDir;
 
 
   // Parse arguments
@@ -171,6 +181,8 @@ int main(int argc, char** argv) {
       bpOpts.jsonOutput = true;
       opts.jsonOutput = true;
       mkJsonOutput = true;
+      gnJsonOutput = true;
+      cmakeJsonOutput = true;
     } else if (arg == "--mk") {
       mkMode = true;
     } else if (arg.substr(0, 9) == "--mk-file") {
@@ -180,12 +192,44 @@ int main(int argc, char** argv) {
       } else if (i + 1 < argc) {
         mkFile = argv[++i];
       }
-    } else if (arg.substr(0, 8) == "--mk-dir") {
+    } else if (arg == "--mk-dir") {
       mkMode = true;
       if (arg.size() > 8 && arg[8] == '=') {
         mkDir = arg.substr(9);
       } else if (i + 1 < argc) {
         mkDir = argv[++i];
+      }
+    } else if (arg == "--gn") {
+      gnMode = true;
+    } else if (arg.substr(0, 9) == "--gn-file") {
+      gnMode = true;
+      if (arg.size() > 9 && arg[9] == '=') {
+        gnFile = arg.substr(10);
+      } else if (i + 1 < argc) {
+        gnFile = argv[++i];
+      }
+    } else if (arg.substr(0, 8) == "--gn-dir") {
+      gnMode = true;
+      if (arg.size() > 8 && arg[8] == '=') {
+        gnDir = arg.substr(9);
+      } else if (i + 1 < argc) {
+        gnDir = argv[++i];
+      }
+    } else if (arg == "--cmake") {
+      cmakeMode = true;
+    } else if (arg.substr(0, 12) == "--cmake-file") {
+      cmakeMode = true;
+      if (arg.size() > 12 && arg[12] == '=') {
+        cmakeFile = arg.substr(13);
+      } else if (i + 1 < argc) {
+        cmakeFile = argv[++i];
+      }
+    } else if (arg.substr(0, 11) == "--cmake-dir") {
+      cmakeMode = true;
+      if (arg.size() > 11 && arg[11] == '=') {
+        cmakeDir = arg.substr(12);
+      } else if (i + 1 < argc) {
+        cmakeDir = argv[++i];
       }
     } else if (arg == "--clean") {
       if (bpMode) {
@@ -221,6 +265,42 @@ int main(int argc, char** argv) {
       return 1;
     }
     if (mkJsonOutput) {
+      scanner.OutputJson();
+    }
+    return 0;
+  }
+
+  if (gnMode) {
+    gormake::GnScanner scanner;
+    if (!gnFile.empty()) {
+      scanner.ScanFile(gnFile);
+    } else if (!gnDir.empty()) {
+      scanner.ScanDirectory(gnDir);
+    } else if (std::ifstream("BUILD.gn").good()) {
+      scanner.ScanFile("BUILD.gn");
+    } else {
+      std::cerr << "gor_make: No BUILD.gn file found.\n";
+      return 1;
+    }
+    if (gnJsonOutput) {
+      scanner.OutputJson();
+    }
+    return 0;
+  }
+
+  if (cmakeMode) {
+    gormake::CmakeScanner scanner;
+    if (!cmakeFile.empty()) {
+      scanner.ScanFile(cmakeFile);
+    } else if (!cmakeDir.empty()) {
+      scanner.ScanDirectory(cmakeDir);
+    } else if (std::ifstream("CMakeLists.txt").good()) {
+      scanner.ScanFile("CMakeLists.txt");
+    } else {
+      std::cerr << "gor_make: No CMakeLists.txt file found.\n";
+      return 1;
+    }
+    if (cmakeJsonOutput) {
       scanner.OutputJson();
     }
     return 0;

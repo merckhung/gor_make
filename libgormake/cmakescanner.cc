@@ -1,0 +1,632 @@
+/*
+ * Copyright (C) 2015 GORMAKE project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "cmakescanner.h"
+
+#include <algorithm>
+#include <cctype>
+#include <cerrno>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <sys/stat.h>
+
+namespace gormake {
+
+namespace fs = std::filesystem;
+
+static bool FileExists(const std::string& path) {
+  struct stat st;
+  return stat(path.c_str(), &st) == 0;
+}
+
+static std::string DirName(const std::string& path) {
+  size_t slash = path.find_last_of('/');
+  return (slash == std::string::npos) ? "." : path.substr(0, slash);
+}
+
+static std::string Trim(const std::string& s) {
+  size_t start = 0;
+  while (start < s.size() && (s[start] == ' ' || s[start] == '\t' ||
+                               s[start] == '\r' || s[start] == '\n'))
+    start++;
+  size_t end = s.size();
+  while (end > start && (s[end - 1] == ' ' || s[end - 1] == '\t' ||
+                          s[end - 1] == '\r' || s[end - 1] == '\n'))
+    end--;
+  return s.substr(start, end - start);
+}
+
+static bool StartsWith(const std::string& s, const std::string& prefix) {
+  return s.size() >= prefix.size() && s.substr(0, prefix.size()) == prefix;
+}
+
+static std::string ToUpper(const std::string& s) {
+  std::string result;
+  result.reserve(s.size());
+  for (char c : s) {
+    result += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  }
+  return result;
+}
+
+static std::string ToLower(const std::string& s) {
+  std::string result;
+  result.reserve(s.size());
+  for (char c : s) {
+    result += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+  return result;
+}
+
+static std::vector<std::string> SplitWhitespace(const std::string& s) {
+  std::vector<std::string> result;
+  std::string current;
+  for (char c : s) {
+    if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+      if (!current.empty()) { result.push_back(current); current.clear(); }
+    } else {
+      current += c;
+    }
+  }
+  if (!current.empty()) result.push_back(current);
+  return result;
+}
+
+// --- CmakeScanner implementation ---
+
+CmakeScanner::CmakeScanner() {}
+CmakeScanner::~CmakeScanner() {}
+
+bool CmakeScanner::ScanFile(const std::string& path) {
+  std::ifstream file(path);
+  if (!file.is_open()) return false;
+
+  current_.path = path;
+  current_.srcDir = DirName(path);
+  pendingLine_.clear();
+  parenDepth_ = 0;
+
+  std::string line;
+  while (std::getline(file, line)) {
+    // Accumulate multi-line commands (CMake commands can span lines
+    // until parens are balanced)
+    if (parenDepth_ > 0) {
+      pendingLine_ += " " + line;
+    } else {
+      pendingLine_ = line;
+    }
+
+    // Count parens to detect multi-line commands
+    for (char c : pendingLine_) {
+      if (c == '(') parenDepth_++;
+      else if (c == ')') parenDepth_ = (parenDepth_ > 0) ? parenDepth_ - 1 : 0;
+    }
+
+    if (parenDepth_ > 0) continue;
+
+    // Process the complete command
+    std::string fullLine = pendingLine_;
+    pendingLine_.clear();
+    ProcessLine(fullLine);
+  }
+
+  // Process any remaining pending line
+  if (!pendingLine_.empty()) {
+    ProcessLine(pendingLine_);
+  }
+
+  return true;
+}
+
+void CmakeScanner::ScanDirectory(const std::string& dirPath) {
+  for (auto& entry : fs::recursive_directory_iterator(dirPath)) {
+    if (entry.path().filename() == "CMakeLists.txt") {
+      std::string entryStr = entry.path().string();
+      if (entryStr.find("/out/") != std::string::npos) continue;
+      if (entryStr.find("/bazel-") != std::string::npos) continue;
+      if (entryStr.find("/.git/") != std::string::npos) continue;
+      if (entryStr.find("/build/") != std::string::npos) continue;
+      ScanFile(entryStr);
+    }
+  }
+}
+
+const std::vector<CmakeTarget>& CmakeScanner::GetTargets() const {
+  return targets_;
+}
+
+std::string CmakeScanner::StripComment(const std::string& line) const {
+  std::string result;
+  bool inString = false;
+  for (size_t i = 0; i < line.size(); ++i) {
+    char c = line[i];
+    if (c == '"' && (i == 0 || line[i - 1] != '\\')) {
+      inString = !inString;
+    }
+    if (c == '#' && !inString) break;
+    result += c;
+  }
+  return result;
+}
+
+std::string CmakeScanner::ExpandVars(const std::string& s) const {
+  std::string result;
+  for (size_t i = 0; i < s.size(); ++i) {
+    if (s[i] == '$' && i + 1 < s.size() && s[i + 1] == '{') {
+      size_t close = s.find('}', i + 2);
+      if (close != std::string::npos) {
+        std::string varName = s.substr(i + 2, close - i - 2);
+        auto it = variables_.find(varName);
+        if (it != variables_.end()) {
+          result += it->second;
+        }
+        i = close;
+        continue;
+      }
+    }
+    result += s[i];
+  }
+  return result;
+}
+
+std::vector<std::string> CmakeScanner::ParseArgs(const std::string& args) {
+  std::vector<std::string> result;
+  std::string current;
+  bool inString = false;
+
+  for (size_t i = 0; i < args.size(); ++i) {
+    char c = args[i];
+    if (c == '"' && (i == 0 || args[i - 1] != '\\')) {
+      inString = !inString;
+      continue;
+    }
+    if (!inString && (c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
+                       c == '(' || c == ')')) {
+      if (!current.empty()) {
+        result.push_back(ExpandVars(current));
+        current.clear();
+      }
+    } else if (c == '$' && i + 1 < args.size() && args[i + 1] == '{') {
+      // Variable reference
+      size_t close = args.find('}', i + 2);
+      if (close != std::string::npos) {
+        std::string varName = args.substr(i + 2, close - i - 2);
+        auto it = variables_.find(varName);
+        if (it != variables_.end()) {
+          current += it->second;
+        }
+        i = close;
+      } else {
+        current += c;
+      }
+    } else {
+      current += c;
+    }
+  }
+  if (!current.empty()) result.push_back(ExpandVars(current));
+  return result;
+}
+
+bool CmakeScanner::ParseCommand(const std::string& line, std::string* cmd,
+                                std::string* args) {
+  std::string trimmed = Trim(StripComment(line));
+  if (trimmed.empty()) return false;
+
+  // Find the opening paren
+  size_t parenPos = trimmed.find('(');
+  if (parenPos == std::string::npos) return false;
+
+  *cmd = ToLower(Trim(trimmed.substr(0, parenPos)));
+
+  // Find the matching closing paren
+  int depth = 1;
+  size_t endPos = parenPos + 1;
+  while (endPos < trimmed.size() && depth > 0) {
+    if (trimmed[endPos] == '(') depth++;
+    else if (trimmed[endPos] == ')') depth--;
+    if (depth > 0) endPos++;
+  }
+
+  if (depth != 0) return false;
+
+  *args = trimmed.substr(parenPos + 1, endPos - parenPos - 1);
+  return true;
+}
+
+void CmakeScanner::ProcessLine(const std::string& rawLine) {
+  std::string cmd, args;
+  if (!ParseCommand(rawLine, &cmd, &args)) {
+    // Not a command — could be a continuation or empty
+    return;
+  }
+
+  auto argList = ParseArgs(args);
+  if (argList.empty()) return;
+
+  // Handle conditionals
+  if (cmd == "if") {
+    // Simplified: assume true
+    condStack_.push_back(true);
+    active_ = true;
+    for (bool v : condStack_) {
+      if (!v) { active_ = false; break; }
+    }
+    return;
+  } else if (cmd == "elseif") {
+    if (!condStack_.empty()) condStack_.back() = false;
+    active_ = true;
+    for (bool v : condStack_) {
+      if (!v) { active_ = false; break; }
+    }
+    return;
+  } else if (cmd == "else") {
+    if (!condStack_.empty()) condStack_.back() = !condStack_.back();
+    active_ = true;
+    for (bool v : condStack_) {
+      if (!v) { active_ = false; break; }
+    }
+    return;
+  } else if (cmd == "endif") {
+    if (!condStack_.empty()) condStack_.pop_back();
+    active_ = true;
+    for (bool v : condStack_) {
+      if (!v) { active_ = false; break; }
+    }
+    return;
+  }
+
+  if (!active_) return;
+
+  // Handle target creation commands
+  if (cmd == "add_executable") {
+    // add_executable(name [source1 source2 ...])
+    if (argList.size() >= 1) {
+      CmakeTarget t;
+      t.path = current_.path;
+      t.srcDir = current_.srcDir;
+      t.name = argList[0];
+      t.type = "executable";
+      for (size_t i = 1; i < argList.size(); ++i) {
+        t.srcs.push_back(argList[i]);
+      }
+      targets_.push_back(t);
+    }
+    return;
+  }
+
+  if (cmd == "add_library") {
+    // add_library(name [STATIC|SHARED|MODULE|INTERFACE] [source1 ...])
+    if (argList.size() >= 1) {
+      CmakeTarget t;
+      t.path = current_.path;
+      t.srcDir = current_.srcDir;
+      t.name = argList[0];
+
+      // Determine library type
+      std::string libType = "static_library";
+      size_t srcStart = 1;
+      if (argList.size() >= 2) {
+        std::string typeArg = ToUpper(argList[1]);
+        if (typeArg == "STATIC") {
+          libType = "static_library";
+          srcStart = 2;
+        } else if (typeArg == "SHARED") {
+          libType = "shared_library";
+          srcStart = 2;
+        } else if (typeArg == "MODULE") {
+          libType = "module_library";
+          srcStart = 2;
+        } else if (typeArg == "INTERFACE") {
+          libType = "interface_library";
+          srcStart = 2;
+        } else if (typeArg == "OBJECT") {
+          libType = "object_library";
+          srcStart = 2;
+        }
+      }
+      t.type = libType;
+
+      for (size_t i = srcStart; i < argList.size(); ++i) {
+        t.srcs.push_back(argList[i]);
+      }
+      targets_.push_back(t);
+    }
+    return;
+  }
+
+  // Handle target property commands (apply to current target)
+  if (cmd == "target_sources") {
+    // target_sources(target [PRIVATE|PUBLIC|INTERFACE] source1 ...)
+    if (argList.size() >= 1) {
+      std::string targetName = argList[0];
+      // Find the target and add sources
+      for (auto& t : targets_) {
+        if (t.name == targetName) {
+          for (size_t i = 1; i < argList.size(); ++i) {
+            std::string a = ToUpper(argList[i]);
+            if (a == "PRIVATE" || a == "PUBLIC" || a == "INTERFACE") continue;
+            t.srcs.push_back(argList[i]);
+          }
+          return;
+        }
+      }
+    }
+    return;
+  }
+
+  if (cmd == "target_link_libraries") {
+    // target_link_libraries(target [PRIVATE|PUBLIC|INTERFACE] lib1 ...)
+    if (argList.size() >= 1) {
+      std::string targetName = argList[0];
+      for (auto& t : targets_) {
+        if (t.name == targetName) {
+          for (size_t i = 1; i < argList.size(); ++i) {
+            std::string a = ToUpper(argList[i]);
+            if (a == "PRIVATE" || a == "PUBLIC" || a == "INTERFACE") continue;
+            t.linkLibs.push_back(argList[i]);
+          }
+          return;
+        }
+      }
+    }
+    return;
+  }
+
+  if (cmd == "target_include_directories") {
+    if (argList.size() >= 1) {
+      std::string targetName = argList[0];
+      for (auto& t : targets_) {
+        if (t.name == targetName) {
+          for (size_t i = 1; i < argList.size(); ++i) {
+            std::string a = ToUpper(argList[i]);
+            if (a == "PRIVATE" || a == "PUBLIC" || a == "INTERFACE") continue;
+            if (a == "BEFORE" || a == "SYSTEM") continue;
+            t.includeDirs.push_back(argList[i]);
+          }
+          return;
+        }
+      }
+    }
+    return;
+  }
+
+  if (cmd == "target_compile_definitions") {
+    if (argList.size() >= 1) {
+      std::string targetName = argList[0];
+      for (auto& t : targets_) {
+        if (t.name == targetName) {
+          for (size_t i = 1; i < argList.size(); ++i) {
+            std::string a = ToUpper(argList[i]);
+            if (a == "PRIVATE" || a == "PUBLIC" || a == "INTERFACE") continue;
+            t.defines.push_back(argList[i]);
+          }
+          return;
+        }
+      }
+    }
+    return;
+  }
+
+  if (cmd == "target_compile_options") {
+    if (argList.size() >= 1) {
+      std::string targetName = argList[0];
+      for (auto& t : targets_) {
+        if (t.name == targetName) {
+          for (size_t i = 1; i < argList.size(); ++i) {
+            std::string a = ToUpper(argList[i]);
+            if (a == "PRIVATE" || a == "PUBLIC" || a == "INTERFACE") continue;
+            t.compileOptions.push_back(argList[i]);
+          }
+          return;
+        }
+      }
+    }
+    return;
+  }
+
+  // Global commands
+  if (cmd == "include_directories") {
+    // Apply to all subsequent targets — store as a global var
+    for (const auto& a : argList) {
+      variables_["CMAKE_INCLUDE_DIRS"] =
+          variables_["CMAKE_INCLUDE_DIRS"] + " " + a;
+    }
+    return;
+  }
+
+  if (cmd == "add_compile_options") {
+    for (const auto& a : argList) {
+      variables_["CMAKE_COMPILE_OPTIONS"] =
+          variables_["CMAKE_COMPILE_OPTIONS"] + " " + a;
+    }
+    return;
+  }
+
+  if (cmd == "add_definitions") {
+    for (const auto& a : argList) {
+      variables_["CMAKE_DEFINITIONS"] =
+          variables_["CMAKE_DEFINITIONS"] + " " + a;
+    }
+    return;
+  }
+
+  if (cmd == "link_directories") {
+    // Ignored for now
+    return;
+  }
+
+  if (cmd == "cmake_minimum_required" || cmd == "project" ||
+      cmd == "set" || cmd == "unset" || cmd == "message" ||
+      cmd == "option" || cmd == "find_package" || cmd == "enable_testing" ||
+      cmd == "enable_language" || cmd == "cmake_policy") {
+    // Handle set() for variable tracking
+    if (cmd == "set" && argList.size() >= 2) {
+      std::string varName = argList[0];
+      std::string varValue;
+      for (size_t i = 1; i < argList.size(); ++i) {
+        if (i > 1) varValue += ";";
+        varValue += argList[i];
+      }
+      variables_[varName] = varValue;
+    }
+    return;
+  }
+
+  // add_subdirectory — scan the subdirectory
+  if (cmd == "add_subdirectory") {
+    if (!argList.empty()) {
+      std::string subdir = argList[0];
+      // Make relative to current srcDir
+      if (subdir[0] != '/') {
+        subdir = current_.srcDir + "/" + subdir;
+      }
+      std::string cmakeFile = subdir + "/CMakeLists.txt";
+      if (FileExists(cmakeFile)) {
+        // Save/restore state
+        auto savedVars = variables_;
+        auto savedCurrent = current_;
+        bool savedInTarget = inTarget_;
+        std::string savedTargetName = currentTargetName_;
+
+        ScanFile(cmakeFile);
+
+        variables_ = savedVars;
+        current_ = savedCurrent;
+        inTarget_ = savedInTarget;
+        currentTargetName_ = savedTargetName;
+      }
+    }
+    return;
+  }
+
+  // add_custom_target — skip but don't crash
+  if (cmd == "add_custom_target") {
+    // Create a target entry for visibility
+    if (!argList.empty()) {
+      CmakeTarget t;
+      t.name = argList[0];
+      t.type = "custom_target";
+      t.srcDir = current_.srcDir;
+      t.path = current_.path;
+      targets_.push_back(t);
+    }
+    return;
+  }
+}
+
+void CmakeScanner::FlushTarget(const std::string& type,
+                                const std::string& name) {
+  if (!inTarget_) return;
+  current_.type = type;
+  current_.name = name;
+  targets_.push_back(current_);
+  inTarget_ = false;
+}
+
+// --- JSON helpers ---
+
+std::string CmakeScanner::JsonEscape(const std::string& s) {
+  std::string result;
+  for (char c : s) {
+    switch (c) {
+      case '"': result += "\\\""; break;
+      case '\\': result += "\\\\"; break;
+      case '\n': result += "\\n"; break;
+      case '\r': result += "\\r"; break;
+      case '\t': result += "\\t"; break;
+      default:
+        if ((unsigned char)c < 0x20) {
+          char buf[8];
+          snprintf(buf, sizeof(buf), "\\u%04x", (unsigned char)c);
+          result += buf;
+        } else {
+          result += c;
+        }
+    }
+  }
+  return result;
+}
+
+void CmakeScanner::OutputArray(const std::vector<std::string>& arr) {
+  printf("[");
+  for (size_t i = 0; i < arr.size(); ++i) {
+    if (i > 0) printf(", ");
+    printf("\"%s\"", JsonEscape(arr[i]).c_str());
+  }
+  printf("]");
+}
+
+void CmakeScanner::OutputJson() const {
+  printf("{\n");
+  printf("  \"format\": \"cmake\",\n");
+  printf("  \"target_count\": %zu,\n", targets_.size());
+  printf("  \"targets\": [\n");
+
+  bool first = true;
+  for (const auto& t : targets_) {
+    if (!first) printf(",\n");
+    first = false;
+
+    printf("    {\n");
+    printf("      \"name\": \"%s\",\n", JsonEscape(t.name).c_str());
+    printf("      \"type\": \"%s\",\n", JsonEscape(t.type).c_str());
+    printf("      \"src_dir\": \"%s\",\n", JsonEscape(t.srcDir).c_str());
+    printf("      \"path\": \"%s\",\n", JsonEscape(t.path).c_str());
+
+    printf("      \"srcs\": ");
+    OutputArray(t.srcs);
+    printf(",\n");
+
+    printf("      \"link_libs\": ");
+    OutputArray(t.linkLibs);
+    printf(",\n");
+
+    printf("      \"cflags\": ");
+    OutputArray(t.cflags);
+    printf(",\n");
+
+    printf("      \"cppflags\": ");
+    OutputArray(t.cppflags);
+    printf(",\n");
+
+    printf("      \"ldflags\": ");
+    OutputArray(t.ldflags);
+    printf(",\n");
+
+    printf("      \"include_dirs\": ");
+    OutputArray(t.includeDirs);
+    printf(",\n");
+
+    printf("      \"defines\": ");
+    OutputArray(t.defines);
+    printf(",\n");
+
+    printf("      \"compile_options\": ");
+    OutputArray(t.compileOptions);
+    printf("\n");
+
+    printf("    }");
+  }
+
+  printf("\n  ]\n");
+  printf("}\n");
+}
+
+}  // namespace gormake
