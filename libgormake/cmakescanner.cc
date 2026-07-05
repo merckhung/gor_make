@@ -26,6 +26,8 @@
 #include <fstream>
 #include <iostream>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace gormake {
 
@@ -616,6 +618,305 @@ void CmakeScanner::OutputJson() const {
 
   printf("\n  ]\n");
   printf("}\n");
+}
+
+// --- Build implementation ---
+
+static std::string BaseName(const std::string& path) {
+  size_t slash = path.find_last_of('/');
+  return (slash == std::string::npos) ? path : path.substr(slash + 1);
+}
+
+static std::string ReplaceExt(const std::string& path,
+                               const std::string& newExt) {
+  size_t dot = path.find_last_of('.');
+  std::string base = (dot == std::string::npos) ? path : path.substr(0, dot);
+  return base + newExt;
+}
+
+static bool IsCSource(const std::string& path) {
+  return path.size() > 2 && path.substr(path.size() - 2) == ".c";
+}
+
+static bool IsCppSource(const std::string& path) {
+  if (path.size() > 3 && path.substr(path.size() - 3) == ".cc") return true;
+  if (path.size() > 4 && path.substr(path.size() - 4) == ".cpp") return true;
+  if (path.size() > 4 && path.substr(path.size() - 4) == ".cxx") return true;
+  return false;
+}
+
+static long GetMtime(const std::string& path) {
+  struct stat st;
+  if (stat(path.c_str(), &st) != 0) return 0;
+  return st.st_mtime;
+}
+
+static bool EnsureDir(const std::string& path) {
+  std::string cmd = "mkdir -p " + path;
+  return system(cmd.c_str()) == 0;
+}
+
+static const CmakeTarget* FindTarget(const std::vector<CmakeTarget>& targets,
+                                      const std::string& name) {
+  for (const auto& t : targets) {
+    if (t.name == name) return &t;
+  }
+  return nullptr;
+}
+
+int CmakeScanner::BuildAll() {
+  // Create build directory
+  if (!EnsureDir("build")) {
+    fprintf(stderr, "gor_make: *** Failed to create build directory.\n");
+    return 1;
+  }
+
+  int result = 0;
+  for (const auto& target : targets_) {
+    if (!BuildTarget(target)) {
+      result = 1;
+    }
+  }
+
+  if (result == 0) {
+    fprintf(stderr, "Build completed successfully.\n");
+  }
+
+  return result;
+}
+
+bool CmakeScanner::BuildTarget(const CmakeTarget& target) {
+  // Skip non-compilable targets
+  if (target.type == "custom_target") {
+    return true;
+  }
+  if (target.type == "interface_library") {
+    // Header-only, nothing to build
+    return true;
+  }
+  if (target.srcs.empty()) {
+    return true;
+  }
+
+  // Create object directory for this target
+  std::string objDir = "build/obj/" + target.name;
+  if (!EnsureDir(objDir)) {
+    fprintf(stderr, "gor_make: *** Failed to create obj directory: %s\n",
+            objDir.c_str());
+    return false;
+  }
+
+  // Compile all source files
+  for (const auto& src : target.srcs) {
+    std::string objFile = GetObjectPath(target, src);
+    if (!CompileSource(target, src, objFile)) {
+      return false;
+    }
+  }
+
+  // Link (except object libraries)
+  if (target.type != "object_library") {
+    if (!LinkTarget(target)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool CmakeScanner::CompileSource(const CmakeTarget& target,
+                                  const std::string& src,
+                                  const std::string& objFile) {
+  // Resolve source path relative to target's source directory
+  std::string srcPath = src;
+  if (!srcPath.empty() && srcPath[0] != '/') {
+    srcPath = target.srcDir + "/" + src;
+  }
+
+  if (!FileExists(srcPath)) {
+    fprintf(stderr, "gor_make: *** Source file not found: %s\n",
+            srcPath.c_str());
+    return false;
+  }
+
+  // Ensure obj directory exists
+  std::string objDir = DirName(objFile);
+  if (!EnsureDir(objDir)) {
+    fprintf(stderr, "gor_make: *** Failed to create directory: %s\n",
+            objDir.c_str());
+    return false;
+  }
+
+  // Check if recompilation is needed
+  if (!NeedsRecompile(objFile, srcPath)) {
+    return true;  // Up to date
+  }
+
+  // Choose compiler based on file extension
+  std::string compiler = "gcc";
+  if (IsCppSource(srcPath)) {
+    compiler = "g++";
+  }
+
+  // Build compilation command
+  std::string cmd = compiler + " -c";
+
+  // Add cflags
+  for (const auto& f : target.cflags) {
+    cmd += " " + f;
+  }
+
+  // Add compile options
+  for (const auto& opt : target.compileOptions) {
+    cmd += " " + opt;
+  }
+
+  // Add include directories
+  for (const auto& dir : target.includeDirs) {
+    // Resolve relative to source directory
+    std::string incDir = dir;
+    if (!incDir.empty() && incDir[0] != '/') {
+      incDir = target.srcDir + "/" + incDir;
+    }
+    cmd += " -I" + incDir;
+  }
+
+  // Add defines
+  for (const auto& def : target.defines) {
+    cmd += " -D" + def;
+  }
+
+  // Add source and output
+  cmd += " -o " + objFile + " " + srcPath;
+
+  // Print and execute
+  printf("%s\n", cmd.c_str());
+  fflush(stdout);
+
+  if (!ExecuteCmd(cmd)) {
+    fprintf(stderr, "gor_make: *** Compilation failed for %s\n",
+            srcPath.c_str());
+    return false;
+  }
+
+  return true;
+}
+
+bool CmakeScanner::LinkTarget(const CmakeTarget& target) {
+  std::string outPath = GetOutputPath(target);
+
+  // Ensure output directory exists
+  std::string outDir = DirName(outPath);
+  if (!EnsureDir(outDir)) {
+    fprintf(stderr, "gor_make: *** Failed to create output directory: %s\n",
+            outDir.c_str());
+    return false;
+  }
+
+  std::string cmd;
+
+  if (target.type == "static_library") {
+    // Create static library with ar
+    cmd = "ar rcs " + outPath;
+    for (const auto& src : target.srcs) {
+      cmd += " " + GetObjectPath(target, src);
+    }
+  } else if (target.type == "shared_library") {
+    // Link shared library
+    cmd = "g++ -shared -o " + outPath;
+
+    // Add ldflags
+    for (const auto& f : target.ldflags) {
+      cmd += " " + f;
+    }
+
+    // Add object files
+    for (const auto& src : target.srcs) {
+      cmd += " " + GetObjectPath(target, src);
+    }
+
+    // Add link libraries
+    for (const auto& lib : target.linkLibs) {
+      const CmakeTarget* depTarget = FindTarget(targets_, lib);
+      if (depTarget) {
+        // Local target — add its output path
+        cmd += " " + GetOutputPath(*depTarget);
+      } else {
+        // System library — add as -l flag
+        cmd += " -l" + lib;
+      }
+    }
+  } else {
+    // Executable (default)
+    cmd = "g++ -o " + outPath;
+
+    // Add ldflags
+    for (const auto& f : target.ldflags) {
+      cmd += " " + f;
+    }
+
+    // Add object files
+    for (const auto& src : target.srcs) {
+      cmd += " " + GetObjectPath(target, src);
+    }
+
+    // Add link libraries
+    for (const auto& lib : target.linkLibs) {
+      const CmakeTarget* depTarget = FindTarget(targets_, lib);
+      if (depTarget) {
+        // Local target — add its output path
+        cmd += " " + GetOutputPath(*depTarget);
+      } else {
+        // System library — add as -l flag
+        cmd += " -l" + lib;
+      }
+    }
+  }
+
+  // Print and execute
+  printf("%s\n", cmd.c_str());
+  fflush(stdout);
+
+  if (!ExecuteCmd(cmd)) {
+    fprintf(stderr, "gor_make: *** Linking failed for %s\n", outPath.c_str());
+    return false;
+  }
+
+  return true;
+}
+
+std::string CmakeScanner::GetOutputPath(const CmakeTarget& target) const {
+  if (target.type == "static_library") {
+    return "build/" + target.name + ".a";
+  }
+  if (target.type == "shared_library") {
+    return "build/" + target.name + ".so";
+  }
+  // Executable
+  return "build/" + target.name;
+}
+
+std::string CmakeScanner::GetObjectPath(const CmakeTarget& target,
+                                         const std::string& src) const {
+  std::string baseName = BaseName(src);
+  return "build/obj/" + target.name + "/" + ReplaceExt(baseName, ".o");
+}
+
+bool CmakeScanner::ExecuteCmd(const std::string& cmd) {
+  int status = system(cmd.c_str());
+  if (status == -1) return false;
+  if (WIFEXITED(status)) {
+    return WEXITSTATUS(status) == 0;
+  }
+  return false;
+}
+
+bool CmakeScanner::NeedsRecompile(const std::string& objFile,
+                                   const std::string& srcFile) const {
+  if (access(objFile.c_str(), F_OK) != 0) return true;
+  long objMtime = GetMtime(objFile);
+  if (GetMtime(srcFile) > objMtime) return true;
+  return false;
 }
 
 }  // namespace gormake

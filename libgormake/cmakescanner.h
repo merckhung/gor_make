@@ -51,6 +51,9 @@ class CmakeScanner {
   const std::vector<CmakeTarget>& GetTargets() const;
   void OutputJson() const;
 
+  // Build all targets. Returns 0 on success.
+  int BuildAll();
+
  private:
   void ProcessLine(const std::string& line);
   void FlushTarget(const std::string& type, const std::string& name);
@@ -71,6 +74,30 @@ class CmakeScanner {
   // JSON helpers
   static std::string JsonEscape(const std::string& s);
   static void OutputArray(const std::vector<std::string>& arr);
+
+  // Build a single target (compile + link).
+  bool BuildTarget(const CmakeTarget& target);
+
+  // Compile a source file into an object file.
+  bool CompileSource(const CmakeTarget& target, const std::string& src,
+                     const std::string& objFile);
+
+  // Link a target into its final output.
+  bool LinkTarget(const CmakeTarget& target);
+
+  // Get output path for a target.
+  std::string GetOutputPath(const CmakeTarget& target) const;
+
+  // Get object file path for a source file.
+  std::string GetObjectPath(const CmakeTarget& target,
+                            const std::string& src) const;
+
+  // Execute a command.
+  bool ExecuteCmd(const std::string& cmd);
+
+  // Check if file needs recompilation.
+  bool NeedsRecompile(const std::string& objFile,
+                      const std::string& srcFile) const;
 
   std::vector<CmakeTarget> targets_;
   std::map<std::string, std::string> variables_;

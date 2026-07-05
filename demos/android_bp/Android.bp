@@ -1,0 +1,13 @@
+cc_library_static {
+    name: "libmath",
+    srcs: ["src/math.c"],
+    export_include_dirs: ["src"],
+    cflags: ["-Wall", "-O2"],
+}
+
+cc_binary {
+    name: "calculator",
+    srcs: ["src/main.c"],
+    static_libs: ["libmath"],
+    cflags: ["-Wall", "-O2"],
+}

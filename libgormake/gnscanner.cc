@@ -784,3 +784,191 @@ void GnScanner::OutputJson() const {
 }
 
 }  // namespace gormake
+
+// =====================================================================
+// GnScanner — build engine (compile + link without ninja)
+// =====================================================================
+
+#include <sys/stat.h>
+#include <unistd.h>
+
+namespace gormake {
+
+static bool GnMkdirP(const std::string& path) {
+  std::string cmd = "mkdir -p " + path;
+  return system(cmd.c_str()) == 0;
+}
+
+static bool GnFileExists(const std::string& path) {
+  struct stat st;
+  return stat(path.c_str(), &st) == 0;
+}
+
+static std::string GnBaseName(const std::string& path) {
+  size_t slash = path.find_last_of('/');
+  std::string base = (slash == std::string::npos) ? path : path.substr(slash + 1);
+  size_t dot = base.find_last_of('.');
+  return (dot == std::string::npos) ? base : base.substr(0, dot);
+}
+
+static bool GnIsCppSource(const std::string& src) {
+  size_t dot = src.find_last_of('.');
+  if (dot == std::string::npos) return false;
+  std::string ext = src.substr(dot);
+  return ext == ".cc" || ext == ".cpp" || ext == ".cxx" || ext == ".C";
+}
+
+std::string GnScanner::GetOutputPath(const GnTarget& target) const {
+  std::string dir = target.srcDir.empty() ? "." : target.srcDir;
+  return dir + "/build/" + target.name;
+}
+
+std::string GnScanner::GetObjectPath(const GnTarget& target,
+                                      const std::string& src) const {
+  std::string dir = target.srcDir.empty() ? "." : target.srcDir;
+  return dir + "/build/obj/" + target.name + "/" + GnBaseName(src) + ".o";
+}
+
+bool GnScanner::NeedsRecompile(const std::string& objFile,
+                                const std::string& srcFile) const {
+  if (!GnFileExists(objFile)) return true;
+  struct stat objStat, srcStat;
+  if (stat(objFile.c_str(), &objStat) != 0) return true;
+  if (stat(srcFile.c_str(), &srcStat) != 0) return true;
+  return srcStat.st_mtime > objStat.st_mtime;
+}
+
+bool GnScanner::ExecuteCmd(const std::string& cmd) {
+  std::printf("  %s\n", cmd.c_str());
+  return system(cmd.c_str()) == 0;
+}
+
+bool GnScanner::CompileSource(const GnTarget& target, const std::string& src,
+                               const std::string& objFile) {
+  if (!NeedsRecompile(objFile, src)) {
+    std::printf("  [skip] %s (up-to-date)\n", src.c_str());
+    return true;
+  }
+
+  std::string srcPath = src;
+  if (srcPath[0] != '/') {
+    std::string dir = target.srcDir.empty() ? "." : target.srcDir;
+    srcPath = dir + "/" + srcPath;
+  }
+
+  bool isCpp = GnIsCppSource(src);
+  std::string compiler = isCpp ? "g++" : "gcc";
+  std::string cmd = compiler + " -c -o " + objFile + " " + srcPath;
+
+  for (const auto& f : target.cflags) cmd += " " + f;
+  for (const auto& f : target.cppflags) cmd += " " + f;
+  for (const auto& d : target.defines) cmd += " -D" + d;
+  for (const auto& inc : target.includeDirs) {
+    if (inc[0] == '/') cmd += " -I" + inc;
+    else {
+      std::string dir = target.srcDir.empty() ? "." : target.srcDir;
+      cmd += " -I" + dir + "/" + inc;
+    }
+  }
+  cmd += " -Wall";
+
+  std::string objDir = objFile.substr(0, objFile.find_last_of('/'));
+  GnMkdirP(objDir);
+  return ExecuteCmd(cmd);
+}
+
+bool GnScanner::LinkTarget(const GnTarget& target) {
+  std::string outputPath = GetOutputPath(target);
+  std::string dir = target.srcDir.empty() ? "." : target.srcDir;
+  GnMkdirP(dir + "/build");
+
+  std::string objFiles;
+  for (const auto& src : target.srcs) {
+    objFiles += " " + GetObjectPath(target, src);
+  }
+
+  if (target.type == "static_library") {
+    std::string cmd = "ar rcs " + outputPath + ".a" + objFiles;
+    return ExecuteCmd(cmd);
+  }
+
+  if (target.type == "shared_library") {
+    std::string cmd = "g++ -shared -o " + outputPath + ".so" + objFiles;
+    for (const auto& f : target.ldflags) cmd += " " + f;
+    return ExecuteCmd(cmd);
+  }
+
+  if (target.type == "executable") {
+    std::string cmd = "g++ -o " + outputPath + objFiles;
+    for (const auto& f : target.ldflags) cmd += " " + f;
+
+    // Link deps (static/shared libraries built by us)
+    for (const auto& dep : target.deps) {
+      std::string depName = dep;
+      if (!depName.empty() && depName[0] == ':') depName = depName.substr(1);
+      for (const auto& t : targets_) {
+        if (t.name == depName) {
+          std::string path = GetOutputPath(t);
+          if (t.type == "static_library") cmd += " " + path + ".a";
+          else if (t.type == "shared_library") cmd += " " + path + ".so";
+          break;
+        }
+      }
+    }
+    return ExecuteCmd(cmd);
+  }
+
+  return true;
+}
+
+bool GnScanner::BuildTarget(const GnTarget& target) {
+  if (target.type == "config" || target.type == "group" ||
+      target.type == "action" || target.type == "action_foreach" ||
+      target.type == "template") {
+    return true;
+  }
+  if (target.srcs.empty()) {
+    std::printf("  [skip] %s (%s) — no sources\n",
+                target.name.c_str(), target.type.c_str());
+    return true;
+  }
+
+  std::printf("Building: %s (%s)\n", target.name.c_str(), target.type.c_str());
+
+  for (const auto& src : target.srcs) {
+    std::string objFile = GetObjectPath(target, src);
+    if (!CompileSource(target, src, objFile)) {
+      std::fprintf(stderr, "gor_make: *** [%s] Error compiling %s\n",
+                   target.name.c_str(), src.c_str());
+      return false;
+    }
+  }
+
+  if (!LinkTarget(target)) {
+    std::fprintf(stderr, "gor_make: *** [%s] Error linking\n",
+                 target.name.c_str());
+    return false;
+  }
+  return true;
+}
+
+int GnScanner::BuildAll() {
+  std::printf("Building %zu targets...\n", targets_.size());
+
+  // Build static/shared libraries first, then executables
+  for (const auto& t : targets_) {
+    if (t.type == "static_library" || t.type == "shared_library") {
+      if (!BuildTarget(t)) return 1;
+    }
+  }
+  for (const auto& t : targets_) {
+    if (t.type == "executable" || t.type == "source_set") {
+      if (!BuildTarget(t)) return 1;
+    }
+  }
+
+  std::printf("Build complete.\n");
+  return 0;
+}
+
+}  // namespace gormake

@@ -64,9 +64,36 @@ class MkScanner {
   // Output all modules as JSON to stdout.
   void OutputJson() const;
 
+  // Build all modules. Returns 0 on success.
+  int BuildAll();
+
  private:
   // Process a line, tracking LOCAL_* variables.
   void ProcessLine(const std::string& line);
+
+  // Build a single module (compile + link).
+  bool BuildModule(const MkModule& module);
+
+  // Compile a source file into an object file.
+  bool CompileSource(const MkModule& module, const std::string& src,
+                     const std::string& objFile);
+
+  // Link a module into its final output.
+  bool LinkModule(const MkModule& module);
+
+  // Get output path for a module.
+  std::string GetOutputPath(const MkModule& module) const;
+
+  // Get object file path for a source file.
+  std::string GetObjectPath(const MkModule& module,
+                            const std::string& src) const;
+
+  // Execute a command.
+  bool ExecuteCmd(const std::string& cmd);
+
+  // Check if file needs recompilation.
+  bool NeedsRecompile(const std::string& objFile,
+                      const std::string& srcFile) const;
 
   // Flush the current module when BUILD_* is encountered.
   void FlushModule(const std::string& buildType);

@@ -526,4 +526,242 @@ void MkScanner::OutputJson() const {
   printf("}\n");
 }
 
+}
+
+// =====================================================================
+// MkScanner — build engine (compile + link without ninja)
+// =====================================================================
+
+#include <sys/stat.h>
+#include <unistd.h>
+
+namespace gormake {
+
+static bool MkMkdirP(const std::string& path) {
+  std::string cmd = "mkdir -p " + path;
+  return system(cmd.c_str()) == 0;
+}
+
+static bool MkFileExists(const std::string& path) {
+  struct stat st;
+  return stat(path.c_str(), &st) == 0;
+}
+
+static std::string MkBaseName(const std::string& path) {
+  size_t slash = path.find_last_of('/');
+  std::string base = (slash == std::string::npos) ? path : path.substr(slash + 1);
+  size_t dot = base.find_last_of('.');
+  return (dot == std::string::npos) ? base : base.substr(0, dot);
+}
+
+static bool IsCppSource(const std::string& src) {
+  std::string ext;
+  size_t dot = src.find_last_of('.');
+  if (dot != std::string::npos) ext = src.substr(dot);
+  return ext == ".cc" || ext == ".cpp" || ext == ".cxx" || ext == ".C";
+}
+
+std::string MkScanner::GetOutputPath(const MkModule& module) const {
+  std::string dir = module.srcDir.empty() ? "." : module.srcDir;
+  return dir + "/build/" + module.name;
+}
+
+std::string MkScanner::GetObjectPath(const MkModule& module,
+                                      const std::string& src) const {
+  std::string dir = module.srcDir.empty() ? "." : module.srcDir;
+  return dir + "/build/obj/" + module.name + "/" + MkBaseName(src) + ".o";
+}
+
+bool MkScanner::NeedsRecompile(const std::string& objFile,
+                                const std::string& srcFile) const {
+  if (!MkFileExists(objFile)) return true;
+  struct stat objStat, srcStat;
+  if (stat(objFile.c_str(), &objStat) != 0) return true;
+  if (stat(srcFile.c_str(), &srcStat) != 0) return true;
+  return srcStat.st_mtime > objStat.st_mtime;
+}
+
+bool MkScanner::ExecuteCmd(const std::string& cmd) {
+  std::printf("  %s\n", cmd.c_str());
+  return system(cmd.c_str()) == 0;
+}
+
+bool MkScanner::CompileSource(const MkModule& module, const std::string& src,
+                               const std::string& objFile) {
+  if (!NeedsRecompile(objFile, src)) {
+    std::printf("  [skip] %s (up-to-date)\n", src.c_str());
+    return true;
+  }
+
+  // Resolve source path relative to srcDir
+  std::string srcPath = src;
+  if (srcPath[0] != '/') {
+    std::string dir = module.srcDir.empty() ? "." : module.srcDir;
+    srcPath = dir + "/" + srcPath;
+  }
+
+  bool isCpp = IsCppSource(src);
+  std::string compiler = isCpp ? "g++" : "gcc";
+
+  std::string cmd = compiler + " -c -o " + objFile + " " + srcPath;
+
+  // Add cflags
+  for (const auto& flag : module.cflags) {
+    cmd += " " + flag;
+  }
+  // Add cppflags
+  for (const auto& flag : module.cppflags) {
+    cmd += " " + flag;
+  }
+  // Add include dirs
+  for (const auto& inc : module.includeDirs) {
+    if (inc[0] == '/') {
+      cmd += " -I" + inc;
+    } else {
+      std::string dir = module.srcDir.empty() ? "." : module.srcDir;
+      cmd += " -I" + dir + "/" + inc;
+    }
+  }
+  // Add export include dirs
+  for (const auto& inc : module.exportIncludeDirs) {
+    if (inc[0] == '/') {
+      cmd += " -I" + inc;
+    } else {
+      std::string dir = module.srcDir.empty() ? "." : module.srcDir;
+      cmd += " -I" + dir + "/" + inc;
+    }
+  }
+
+  cmd += " -Wall";
+
+  // Create output directory
+  std::string objDir = objFile.substr(0, objFile.find_last_of('/'));
+  MkMkdirP(objDir);
+
+  return ExecuteCmd(cmd);
+}
+
+bool MkScanner::LinkModule(const MkModule& module) {
+  std::string outputPath = GetOutputPath(module);
+  std::string dir = module.srcDir.empty() ? "." : module.srcDir;
+  std::string outputDir = dir + "/build";
+  MkMkdirP(outputDir);
+
+  // Collect all object files
+  std::string objFiles;
+  for (const auto& src : module.srcs) {
+    std::string objPath = GetObjectPath(module, src);
+    objFiles += " " + objPath;
+  }
+
+  if (module.buildType == "BUILD_STATIC_LIBRARY") {
+    std::string cmd = "ar rcs " + outputPath + ".a" + objFiles;
+    return ExecuteCmd(cmd);
+  }
+
+  if (module.buildType == "BUILD_SHARED_LIBRARY") {
+    std::string cmd = "g++ -shared -o " + outputPath + ".so" + objFiles;
+    for (const auto& flag : module.ldflags) cmd += " " + flag;
+    // Link shared libs
+    for (const auto& lib : module.sharedLibs) {
+      std::string libName = lib;
+      if (libName.substr(0, 3) == "lib") libName = libName.substr(3);
+      cmd += " -l" + libName;
+    }
+    return ExecuteCmd(cmd);
+  }
+
+  if (module.buildType == "BUILD_EXECUTABLE") {
+    std::string cmd = "g++ -o " + outputPath + objFiles;
+    for (const auto& flag : module.ldflags) cmd += " " + flag;
+
+    // Link shared libs
+    for (const auto& lib : module.sharedLibs) {
+      std::string libName = lib;
+      if (libName.substr(0, 3) == "lib") libName = libName.substr(3);
+      cmd += " -l" + libName;
+    }
+    // Link static libs — use the .a file directly from the build output
+    for (const auto& lib : module.staticLibs) {
+      // Find the built static library
+      std::string libPath;
+      for (const auto& m : modules_) {
+        if (m.name == lib && m.buildType == "BUILD_STATIC_LIBRARY") {
+          libPath = GetOutputPath(m) + ".a";
+          break;
+        }
+      }
+      if (!libPath.empty()) {
+        cmd += " " + libPath;
+      } else {
+        // Fallback to -l flag
+        std::string libName = lib;
+        if (libName.substr(0, 3) == "lib") libName = libName.substr(3);
+        cmd += " -l" + libName;
+      }
+    }
+    return ExecuteCmd(cmd);
+  }
+
+  // Unknown build type — skip
+  return true;
+}
+
+bool MkScanner::BuildModule(const MkModule& module) {
+  if (module.srcs.empty()) {
+    std::printf("  [skip] %s (no sources)\n", module.name.c_str());
+    return true;
+  }
+
+  std::printf("Building: %s (%s)\n", module.name.c_str(),
+              module.buildType.c_str());
+
+  // Compile all sources
+  for (const auto& src : module.srcs) {
+    std::string objFile = GetObjectPath(module, src);
+    if (!CompileSource(module, src, objFile)) {
+      std::fprintf(stderr, "gor_make: *** [%s] Error compiling %s\n",
+                   module.name.c_str(), src.c_str());
+      return false;
+    }
+  }
+
+  // Link
+  if (!LinkModule(module)) {
+    std::fprintf(stderr, "gor_make: *** [%s] Error linking\n",
+                 module.name.c_str());
+    return false;
+  }
+
+  return true;
+}
+
+int MkScanner::BuildAll() {
+  std::printf("Building %zu modules...\n", modules_.size());
+
+  // Build static libraries first, then shared, then executables
+  std::vector<std::string> order = {"BUILD_STATIC_LIBRARY",
+                                     "BUILD_SHARED_LIBRARY",
+                                     "BUILD_EXECUTABLE"};
+  for (const auto& buildType : order) {
+    for (const auto& module : modules_) {
+      if (module.buildType == buildType) {
+        if (!BuildModule(module)) return 1;
+      }
+    }
+  }
+
+  // Build any remaining modules
+  for (const auto& module : modules_) {
+    if (module.buildType != "BUILD_STATIC_LIBRARY" &&
+        module.buildType != "BUILD_SHARED_LIBRARY" &&
+        module.buildType != "BUILD_EXECUTABLE") {
+      if (!BuildModule(module)) return 1;
+    }
+  }
+
+  std::printf("Build complete.\n");
+  return 0;
+}
+
 }  // namespace gormake

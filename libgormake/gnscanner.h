@@ -76,6 +76,9 @@ class GnScanner {
   // The "format" field is set to "build.gn".
   void OutputJson() const;
 
+  // Build all targets. Returns 0 on success.
+  int BuildAll();
+
  private:
   // Processes a single logical line (after line-continuation joining).
   void ProcessLine(const std::string& line);
@@ -98,6 +101,18 @@ class GnScanner {
   // Helper: assigns/appends a list value to a target property.
   void AssignProperty(const std::string& name,
                       const std::vector<std::string>& values, bool append);
+
+  // --- Build engine methods ---
+  bool BuildTarget(const GnTarget& target);
+  bool CompileSource(const GnTarget& target, const std::string& src,
+                     const std::string& objFile);
+  bool LinkTarget(const GnTarget& target);
+  std::string GetOutputPath(const GnTarget& target) const;
+  std::string GetObjectPath(const GnTarget& target,
+                            const std::string& src) const;
+  bool ExecuteCmd(const std::string& cmd);
+  bool NeedsRecompile(const std::string& objFile,
+                      const std::string& srcFile) const;
 
   std::vector<GnTarget> targets_;
   // Top-level (and target-local) variables: name -> string value.

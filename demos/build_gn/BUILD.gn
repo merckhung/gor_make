@@ -1,0 +1,15 @@
+static_library("libmath") {
+  sources = ["src/math.cc"]
+  public_configs = [":math_config"]
+}
+
+config("math_config") {
+  include_dirs = ["src"]
+  defines = ["MATH_EXPORT="]
+}
+
+executable("calculator") {
+  sources = ["src/main.cc"]
+  deps = [":libmath"]
+  cflags = ["-Wall", "-O2"]
+}

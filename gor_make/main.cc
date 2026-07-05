@@ -266,6 +266,8 @@ int main(int argc, char** argv) {
     }
     if (mkJsonOutput) {
       scanner.OutputJson();
+    } else {
+      return scanner.BuildAll();
     }
     return 0;
   }
@@ -284,6 +286,8 @@ int main(int argc, char** argv) {
     }
     if (gnJsonOutput) {
       scanner.OutputJson();
+    } else {
+      return scanner.BuildAll();
     }
     return 0;
   }
@@ -302,6 +306,8 @@ int main(int argc, char** argv) {
     }
     if (cmakeJsonOutput) {
       scanner.OutputJson();
+    } else {
+      return scanner.BuildAll();
     }
     return 0;
   }
