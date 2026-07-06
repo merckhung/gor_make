@@ -14,3 +14,10 @@ bazel-out
 bazel-testlogs
 bazel-gor_make
 .module_cache
+
+# Build artifacts from demo projects
+demos/*/build/
+demos/*/out/
+*.d
+*.o
+*.a
