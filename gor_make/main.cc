@@ -120,6 +120,7 @@ int main(int argc, char** argv) {
   std::string sconsFile;
   std::string sconsDir;
   bool dryRun = false;
+  int jobs = 1;
 
 
   // Parse arguments
@@ -280,6 +281,7 @@ int main(int argc, char** argv) {
   if (mkMode) {
     gormake::MkScanner scanner;
     scanner.SetDryRun(dryRun);
+    scanner.SetJobs(jobs);
     if (!mkFile.empty()) {
       scanner.ScanFile(mkFile);
     } else if (!mkDir.empty()) {
@@ -301,6 +303,7 @@ int main(int argc, char** argv) {
   if (gnMode) {
     gormake::GnScanner scanner;
     scanner.SetDryRun(dryRun);
+    scanner.SetJobs(jobs);
     if (!gnFile.empty()) {
       scanner.ScanFile(gnFile);
     } else if (!gnDir.empty()) {
@@ -322,6 +325,7 @@ int main(int argc, char** argv) {
   if (cmakeMode) {
     gormake::CmakeScanner scanner;
     scanner.SetDryRun(dryRun);
+    scanner.SetJobs(jobs);
     if (!cmakeFile.empty()) {
       scanner.ScanFile(cmakeFile);
     } else if (!cmakeDir.empty()) {
@@ -343,6 +347,7 @@ int main(int argc, char** argv) {
   if (sconsMode) {
     gormake::SconScanner scanner;
     scanner.SetDryRun(dryRun);
+    scanner.SetJobs(jobs);
     if (!sconsFile.empty()) {
       scanner.ScanFile(sconsFile);
     } else if (!sconsDir.empty()) {

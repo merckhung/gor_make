@@ -51,6 +51,7 @@ class SconScanner {
   const std::vector<SconTarget>& GetTargets() const;
   void OutputJson() const;
   void SetDryRun(bool v) { dryRun_ = v; }
+  void SetJobs(int j) { jobs_ = j; }
 
   // Build all targets. Returns 0 on success.
   int BuildAll();
@@ -102,6 +103,7 @@ class SconScanner {
   std::string currentPath_;
   std::string currentSrcDir_;
   bool dryRun_ = false;
+  int jobs_ = 1;
 };
 
 }  // namespace gormake

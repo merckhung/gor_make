@@ -77,6 +77,7 @@ class GnScanner {
   // The "format" field is set to "build.gn".
   void OutputJson() const;
   void SetDryRun(bool v) { dryRun_ = v; }
+  void SetJobs(int j) { jobs_ = j; }
 
   // Build all targets. Returns 0 on success.
   int BuildAll();
@@ -130,6 +131,7 @@ class GnScanner {
   // For import() tracking
   std::unordered_set<std::string> visitedFiles_;
   bool dryRun_ = false;
+  int jobs_ = 1;
 };
 
 }  // namespace gormake

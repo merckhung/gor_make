@@ -832,6 +832,7 @@ void GnScanner::OutputJson() const {
 
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 namespace gormake {
 
