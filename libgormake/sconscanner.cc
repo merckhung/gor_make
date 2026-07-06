@@ -626,8 +626,7 @@ bool SconScanner::NeedsRecompile(const std::string& objFile,
 
 bool SconScanner::ExecuteCmd(const std::string& cmd) {
   if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
-  std::printf("  %s\n", cmd.c_str());
-  return system(cmd.c_str()) == 0;
+  return buildutil::ExecuteCmd(cmd);
 }
 
 bool SconScanner::CompileSource(const SconTarget& target,
@@ -645,7 +644,7 @@ bool SconScanner::CompileSource(const SconTarget& target,
   }
 
   std::string compiler = buildutil::GetCompiler(src);
-  std::string cmd = compiler + " -c -o " + objFile + " " + srcPath;
+  std::string cmd = compiler + " -MMD -MP -c -o " + objFile + " " + srcPath;
 
   // Add env cflags
   for (const auto& f : envCflags_) cmd += " " + f;

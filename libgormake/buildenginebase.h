@@ -47,7 +47,11 @@ bool IsCppSource(const std::string& src);
 bool IsCSource(const std::string& src);
 
 // Check if an object file needs recompilation (mtime-based).
+// Also checks .d dependency file for header changes.
 bool NeedsRecompile(const std::string& objFile, const std::string& srcFile);
+
+// Check if any header listed in a .d dependency file is newer than the .o.
+bool CheckDepFile(const std::string& objFile);
 
 // Execute a shell command, printing it first. Returns true on success.
 bool ExecuteCmd(const std::string& cmd);

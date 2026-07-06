@@ -17,6 +17,7 @@
 #include "buildenginebase.h"
 
 #include <cctype>
+#include <fstream>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -69,7 +70,58 @@ bool NeedsRecompile(const std::string& objFile,
   struct stat objStat, srcStat;
   if (stat(objFile.c_str(), &objStat) != 0) return true;
   if (stat(srcFile.c_str(), &srcStat) != 0) return true;
-  return srcStat.st_mtime > objStat.st_mtime;
+  if (srcStat.st_mtime > objStat.st_mtime) return true;
+  // Check .d dependency file for header changes
+  return CheckDepFile(objFile);
+}
+
+bool CheckDepFile(const std::string& objFile) {
+  std::string depFile = objFile;
+  // gcc -MMD generates .d file by replacing .o extension with .d
+  size_t dotPos = depFile.rfind('.');
+  if (dotPos != std::string::npos) {
+    depFile = depFile.substr(0, dotPos) + ".d";
+  } else {
+    depFile += ".d";
+  }
+  std::ifstream f(depFile);
+  if (!f.is_open()) return false;  // No .d file, can't check deps
+
+  // Get .o file mtime
+  struct stat objStat;
+  if (stat(objFile.c_str(), &objStat) != 0) return false;
+
+  // Parse .d file: format is "output: dep1 dep2 dep3..."
+  std::string line;
+  while (std::getline(f, line)) {
+    // Find the colon separator
+    size_t colon = line.find(':');
+    if (colon == std::string::npos) continue;
+
+    // Parse dependency files after the colon
+    std::string deps = line.substr(colon + 1);
+    // Split by whitespace
+    size_t start = 0;
+    while (start < deps.size()) {
+      while (start < deps.size() && isspace(static_cast<unsigned char>(deps[start])))
+        start++;
+      if (start >= deps.size()) break;
+      size_t end = start;
+      while (end < deps.size() && !isspace(static_cast<unsigned char>(deps[end])))
+        end++;
+      // Ignore line continuations
+      if (end > start && deps[end-1] != '\\') {
+        std::string depPath = deps.substr(start, end - start);
+        // Check if this dependency is newer than the .o file
+        struct stat depStat;
+        if (stat(depPath.c_str(), &depStat) == 0) {
+          if (depStat.st_mtime > objStat.st_mtime) return true;
+        }
+      }
+      start = end;
+    }
+  }
+  return false;
 }
 
 bool ExecuteCmd(const std::string& cmd) {

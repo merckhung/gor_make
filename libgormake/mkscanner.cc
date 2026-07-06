@@ -32,18 +32,6 @@ namespace gormake {
 
 namespace fs = std::filesystem;
 
-// Helper: check if file exists
-static bool FileExists(const std::string& path) {
-  struct stat st;
-  return stat(path.c_str(), &st) == 0;
-}
-
-// Helper: get directory of a file path
-static std::string DirName(const std::string& path) {
-  size_t slash = path.find_last_of('/');
-  return (slash == std::string::npos) ? "." : path.substr(0, slash);
-}
-
 // Helper: trim whitespace
 static std::string Trim(const std::string& s) {
   size_t start = 0;
@@ -101,7 +89,7 @@ bool MkScanner::ScanFile(const std::string& path) {
   }
 
   current_.path = path;
-  current_.srcDir = DirName(path);
+  current_.srcDir = buildutil::DirName(path);
   variables_["LOCAL_PATH"] = "";  // Will be set by $(call my-dir) expansion
 
   std::string line;
@@ -387,7 +375,7 @@ void MkScanner::ProcessLine(const std::string& rawLine) {
     includeTarget = ExpandVars(includeTarget);
 
     // Try to read the file
-    if (FileExists(includeTarget)) {
+    if (buildutil::FileExists(includeTarget)) {
       // Recursively scan included file
       auto savedVars = variables_;
       auto savedCurrent = current_;
@@ -605,8 +593,7 @@ bool MkScanner::NeedsRecompile(const std::string& objFile,
 
 bool MkScanner::ExecuteCmd(const std::string& cmd) {
   if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
-  std::printf("  %s\n", cmd.c_str());
-  return system(cmd.c_str()) == 0;
+  return buildutil::ExecuteCmd(cmd);
 }
 
 bool MkScanner::CompileSource(const MkModule& module, const std::string& src,
@@ -625,7 +612,7 @@ bool MkScanner::CompileSource(const MkModule& module, const std::string& src,
 
   std::string compiler = buildutil::GetCompiler(src);
 
-  std::string cmd = compiler + " -c -o " + objFile + " " + srcPath;
+  std::string cmd = compiler + " -MMD -MP -c -o " + objFile + " " + srcPath;
 
   // Add cflags
   for (const auto& flag : module.cflags) {

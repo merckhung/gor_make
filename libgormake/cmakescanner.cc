@@ -47,10 +47,6 @@ static std::string Trim(const std::string& s) {
   return s.substr(start, end - start);
 }
 
-static bool StartsWith(const std::string& s, const std::string& prefix) {
-  return s.size() >= prefix.size() && s.substr(0, prefix.size()) == prefix;
-}
-
 static std::string ToUpper(const std::string& s) {
   std::string result;
   result.reserve(s.size());
@@ -66,20 +62,6 @@ static std::string ToLower(const std::string& s) {
   for (char c : s) {
     result += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   }
-  return result;
-}
-
-static std::vector<std::string> SplitWhitespace(const std::string& s) {
-  std::vector<std::string> result;
-  std::string current;
-  for (char c : s) {
-    if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-      if (!current.empty()) { result.push_back(current); current.clear(); }
-    } else {
-      current += c;
-    }
-  }
-  if (!current.empty()) result.push_back(current);
   return result;
 }
 
@@ -629,12 +611,6 @@ static std::string ReplaceExt(const std::string& path,
   return base + newExt;
 }
 
-static long GetMtime(const std::string& path) {
-  struct stat st;
-  if (stat(path.c_str(), &st) != 0) return 0;
-  return st.st_mtime;
-}
-
 static const CmakeTarget* FindTarget(const std::vector<CmakeTarget>& targets,
                                       const std::string& name) {
   for (const auto& t : targets) {
@@ -735,7 +711,7 @@ bool CmakeScanner::CompileSource(const CmakeTarget& target,
   std::string compiler = buildutil::GetCompiler(srcPath);
 
   // Build compilation command
-  std::string cmd = compiler + " -c";
+  std::string cmd = compiler + " -MMD -MP -c";
 
   // Add cflags
   for (const auto& f : target.cflags) {
@@ -880,12 +856,7 @@ std::string CmakeScanner::GetObjectPath(const CmakeTarget& target,
 
 bool CmakeScanner::ExecuteCmd(const std::string& cmd) {
   if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
-  int status = system(cmd.c_str());
-  if (status == -1) return false;
-  if (WIFEXITED(status)) {
-    return WEXITSTATUS(status) == 0;
-  }
-  return false;
+  return buildutil::ExecuteCmd(cmd);
 }
 
 bool CmakeScanner::NeedsRecompile(const std::string& objFile,

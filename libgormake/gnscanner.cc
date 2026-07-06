@@ -36,11 +36,6 @@ namespace fs = std::filesystem;
 // Helper functions
 // ---------------------------------------------------------------------------
 
-static std::string DirName(const std::string& path) {
-  size_t slash = path.find_last_of('/');
-  return (slash == std::string::npos) ? "." : path.substr(0, slash);
-}
-
 static std::string Trim(const std::string& s) {
   size_t start = 0;
   while (start < s.size() &&
@@ -140,7 +135,7 @@ bool GnScanner::ScanFile(const std::string& path) {
   }
 
   current_.path = path;
-  current_.srcDir = DirName(path);
+  current_.srcDir = buildutil::DirName(path);
 
   // Read line by line, joining line continuations (backslash-newline).
   std::string buffer;
@@ -858,8 +853,7 @@ bool GnScanner::NeedsRecompile(const std::string& objFile,
 
 bool GnScanner::ExecuteCmd(const std::string& cmd) {
   if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
-  std::printf("  %s\n", cmd.c_str());
-  return system(cmd.c_str()) == 0;
+  return buildutil::ExecuteCmd(cmd);
 }
 
 bool GnScanner::CompileSource(const GnTarget& target, const std::string& src,
@@ -876,7 +870,7 @@ bool GnScanner::CompileSource(const GnTarget& target, const std::string& src,
   }
 
   std::string compiler = buildutil::GetCompiler(src);
-  std::string cmd = compiler + " -c -o " + objFile + " " + srcPath;
+  std::string cmd = compiler + " -MMD -MP -c -o " + objFile + " " + srcPath;
 
   for (const auto& f : target.cflags) cmd += " " + f;
   for (const auto& f : target.cppflags) cmd += " " + f;

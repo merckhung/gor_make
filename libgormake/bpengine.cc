@@ -41,21 +41,6 @@ static long GetMtime(const std::string& path) {
   return st.st_mtime;
 }
 
-// Helper: split string by whitespace
-static std::vector<std::string> SplitWords(const std::string& s) {
-  std::vector<std::string> result;
-  std::string current;
-  for (char c : s) {
-    if (c == ' ' || c == '\t') {
-      if (!current.empty()) { result.push_back(current); current.clear(); }
-    } else {
-      current += c;
-    }
-  }
-  if (!current.empty()) result.push_back(current);
-  return result;
-}
-
 // Helper: join strings with separator
 static std::string Join(const std::vector<std::string>& v, const std::string& sep) {
   std::string result;
@@ -71,13 +56,6 @@ static std::string ReplaceExt(const std::string& path, const std::string& newExt
   size_t dot = path.find_last_of('.');
   std::string base = (dot == std::string::npos) ? path : path.substr(0, dot);
   return base + newExt;
-}
-
-// Helper: check if a file is an assembly source (.S, .s)
-static bool IsAsmSource(const std::string& path) {
-  if (path.size() > 2 && path.substr(path.size() - 2) == ".S") return true;
-  if (path.size() > 2 && path.substr(path.size() - 2) == ".s") return true;
-  return false;
 }
 
 // BpEngine implementation ------------------------------------------------
@@ -674,7 +652,7 @@ bool BpEngine::CompileModule(BpBuildModule* module) {
       std::string compiler = buildutil::IsCppSource(srcPath) ? cxx_ : cc_;
 
       // Build command
-      std::string cmd = compiler + " -c";
+      std::string cmd = compiler + " -MMD -MP -c";
 
       // Add cflags
       for (const auto& f : commonCflags_) {
