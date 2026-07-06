@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 
 cc_library(
     name = "gormake",
@@ -46,4 +46,11 @@ cc_library(
     ],
     copts = ["-Wno-unused-parameter"],
     visibility = ["//visibility:public"],
+)
+
+cc_test(
+    name = "scanner_test",
+    srcs = ["scanner_test.cc"],
+    deps = [":gormake"],
+    copts = ["-I$(GENDIR)/libgormake", "-Ilibgormake"],
 )
