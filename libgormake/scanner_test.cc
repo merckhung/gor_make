@@ -1,194 +1,531 @@
 /*
  * Copyright (C) 2015 GORMAKE project
  *
- * Test infrastructure for gor_make scanners.
- * Tests all 6 build format scanners.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
-#include <cassert>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
+#include <iostream>
+#include <iterator>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <vector>
 
 #include "bpengine.h"
+#include "bpparser.h"
 #include "cmakescanner.h"
+#include "engine.h"
 #include "gnscanner.h"
 #include "mkscanner.h"
 #include "sconscanner.h"
 
-namespace fs = std::filesystem;
+// ---------------------------------------------------------------------------
+// Helper utilities
+// ---------------------------------------------------------------------------
 
-static int tests_passed = 0;
-static int tests_failed = 0;
+// Counter for pass/fail across all tests.
+static int g_pass = 0;
+static int g_fail = 0;
 
-static std::string CreateTempDir() {
+// Write |content| to |path|.  Returns true on success.
+static bool WriteFile(const std::string& path, const std::string& content) {
+  std::ofstream ofs(path);
+  if (!ofs) {
+    return false;
+  }
+  ofs << content;
+  return ofs.good();
+}
+
+// Create a temporary directory using mkdtemp.  Returns the path (with trailing
+// slash) on success, or an empty string on failure.
+static std::string MakeTempDir() {
   char tmpl[] = "/tmp/gormake_test_XXXXXX";
   char* dir = mkdtemp(tmpl);
-  return std::string(dir);
+  if (dir == nullptr) {
+    std::cerr << "mkdtemp failed: " << strerror(errno) << "\n";
+    return "";
+  }
+  return std::string(dir) + "/";
 }
 
-static void WriteFile(const std::string& path, const std::string& content) {
-  std::ofstream f(path);
-  f << content;
-  f.close();
+// Remove a directory tree recursively (best effort).
+static void RemoveDir(const std::string& path) {
+  std::string cmd = "rm -rf '" + path + "'";
+  // Intentionally not checking the return value; this is best-effort cleanup.
+  int rc = system(cmd.c_str());
+  (void)rc;
 }
 
-static void CleanupDir(const std::string& dir) {
-  fs::remove_all(dir);
+// Simple JSON validator: checks that the output captured from a scanner's
+// OutputJson() call is non-empty and has balanced braces/brackets.
+// Returns true if the output looks like valid JSON.
+static bool ValidateJson(const std::string& json) {
+  if (json.empty()) return false;
+
+  int braces = 0;
+  int brackets = 0;
+  bool inString = false;
+  bool escape = false;
+
+  for (size_t i = 0; i < json.size(); ++i) {
+    char c = json[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (c == '\\') {
+      escape = true;
+      continue;
+    }
+    if (c == '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (c == '{') braces++;
+    else if (c == '}') braces--;
+    else if (c == '[') brackets++;
+    else if (c == ']') brackets--;
+  }
+
+  // Braces/brackets must be balanced and we must have exited any string.
+  return braces == 0 && brackets == 0 && !inString;
 }
 
-#define TEST(name) printf("  Test: %s ... ", #name)
-#define PASS() do { printf("PASS\n"); tests_passed++; } while(0)
-#define FAIL(msg) do { printf("FAIL: %s\n", msg); tests_failed++; } while(0)
-#define ASSERT_EQ(a, b) \
-  if ((a) != (b)) { FAIL(#a " != " #b); return; }
+// Capture stdout produced by |fn| (e.g., OutputJson).
+static std::string CaptureStdout(void (*fn)(void*), void* ctx) {
+  fflush(stdout);
+  int saved = dup(STDOUT_FILENO);
+  if (saved < 0) return "";
 
-void test_bp_scanner() {
-  TEST(test_bp_scanner);
-  std::string dir = CreateTempDir();
-  fs::create_directories(dir + "/src");
+  char tmpl[] = "/tmp/gormake_capture_XXXXXX";
+  int fd = mkstemp(tmpl);
+  if (fd < 0) {
+    close(saved);
+    return "";
+  }
 
-  WriteFile(dir + "/src/math.c", "int add(int a, int b) { return a + b; }\n");
-  WriteFile(dir + "/src/main.c", "int main() { return 0; }\n");
-  WriteFile(dir + "/Android.bp",
-    "cc_library_static {\n"
-    "  name: \"libmath\",\n"
-    "  srcs: [\"src/math.c\"],\n"
-    "  export_include_dirs: [\"src\"],\n"
-    "}\n"
-    "cc_binary {\n"
-    "  name: \"calculator\",\n"
-    "  srcs: [\"src/main.c\"],\n"
-    "  static_libs: [\"libmath\"],\n"
-    "}\n");
+  dup2(fd, STDOUT_FILENO);
+  close(fd);
 
-  gormake::BpEngine engine;
-  gormake::BpBuildOptions opts;
-  opts.bpFilePath = dir + "/Android.bp";
-  opts.jsonOutput = true;
-  // We just test that it doesn't crash
-  engine.Run(opts);
-  PASS();
-  CleanupDir(dir);
+  fn(ctx);
+
+  fflush(stdout);
+  dup2(saved, STDOUT_FILENO);
+  close(saved);
+
+  std::ifstream ifs(tmpl);
+  std::string content((std::istreambuf_iterator<char>(ifs)),
+                       std::istreambuf_iterator<char>());
+  unlink(tmpl);
+  return content;
 }
 
-void test_mk_scanner() {
-  TEST(test_mk_scanner);
-  std::string dir = CreateTempDir();
-  fs::create_directories(dir + "/src");
+// Wrappers for CaptureStdout to call OutputJson on each scanner type.
+static void CallBpOutputJson(void* ctx) {
+  static_cast<gormake::BpEngine*>(ctx)->OutputJson();
+}
+static void CallMkOutputJson(void* ctx) {
+  static_cast<gormake::MkScanner*>(ctx)->OutputJson();
+}
+static void CallGnOutputJson(void* ctx) {
+  static_cast<gormake::GnScanner*>(ctx)->OutputJson();
+}
+static void CallCmakeOutputJson(void* ctx) {
+  static_cast<gormake::CmakeScanner*>(ctx)->OutputJson();
+}
+static void CallSconOutputJson(void* ctx) {
+  static_cast<gormake::SconScanner*>(ctx)->OutputJson();
+}
+static void CallEngineOutputJson(void* ctx) {
+  static_cast<gormake::Engine*>(ctx)->OutputJson();
+}
 
-  WriteFile(dir + "/src/math.c", "int add(int a, int b) { return a + b; }\n");
-  WriteFile(dir + "/src/main.c", "int main() { return 0; }\n");
-  WriteFile(dir + "/Android.mk",
-    "LOCAL_PATH := $(call my-dir)\n"
-    "include $(CLEAR_VARS)\n"
-    "LOCAL_MODULE := libmath\n"
-    "LOCAL_SRC_FILES := src/math.c\n"
-    "include $(BUILD_STATIC_LIBRARY)\n"
-    "include $(CLEAR_VARS)\n"
-    "LOCAL_MODULE := calculator\n"
-    "LOCAL_SRC_FILES := src/main.c\n"
-    "LOCAL_STATIC_LIBRARIES := libmath\n"
-    "include $(BUILD_EXECUTABLE)\n");
+// Helper to report a test result.
+static void ReportResult(const std::string& name, bool ok) {
+  if (ok) {
+    std::cout << "[  PASS  ] " << name << "\n";
+    g_pass++;
+  } else {
+    std::cout << "[  FAIL  ] " << name << "\n";
+    g_fail++;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Test cases
+// ---------------------------------------------------------------------------
+
+// test_bp: Create Android.bp with cc_binary + cc_library_static, scan,
+// verify 2 modules.
+static void TestBp() {
+  std::string tmpdir = MakeTempDir();
+  if (tmpdir.empty()) {
+    ReportResult("test_bp", false);
+    return;
+  }
+
+  std::string bpPath = tmpdir + "Android.bp";
+  std::string content =
+      "cc_binary {\n"
+      "    name: \"hello\",\n"
+      "    srcs: [\"main.c\"],\n"
+      "}\n"
+      "\n"
+      "cc_library_static {\n"
+      "    name: \"libutil\",\n"
+      "    srcs: [\"util.c\"],\n"
+      "}\n";
+
+  if (!WriteFile(bpPath, content)) {
+    ReportResult("test_bp", false);
+    RemoveDir(tmpdir);
+    return;
+  }
+
+  gormake::BpParser parser;
+  gormake::BpFile result;
+  bool ok = parser.ParseFile(bpPath, &result);
+
+  bool pass = ok && result.modules.size() == 2;
+  if (pass) {
+    // Verify module types.
+    bool foundBinary = false;
+    bool foundStatic = false;
+    for (const auto& m : result.modules) {
+      if (m.type == "cc_binary" && m.name == "hello") foundBinary = true;
+      if (m.type == "cc_library_static" && m.name == "libutil")
+        foundStatic = true;
+    }
+    pass = foundBinary && foundStatic;
+  }
+
+  ReportResult("test_bp", pass);
+
+  // Test JSON output through the BpEngine (which uses BpParser internally).
+  if (pass) {
+    gormake::BpBuildOptions opts;
+    opts.bpFilePath = bpPath;
+    opts.jsonOutput = true;
+    gormake::BpEngine engine;
+    engine.Run(opts);
+    // Capture and validate JSON
+    gormake::BpEngine engine2;
+    engine2.Run(opts);
+    std::string json =
+        CaptureStdout(CallBpOutputJson, &engine2);
+    bool jsonOk = ValidateJson(json);
+    ReportResult("test_bp_json", jsonOk);
+  }
+
+  RemoveDir(tmpdir);
+}
+
+// test_mk: Create Android.mk with BUILD_STATIC_LIBRARY + BUILD_EXECUTABLE,
+// scan, verify 2 modules.
+static void TestMk() {
+  std::string tmpdir = MakeTempDir();
+  if (tmpdir.empty()) {
+    ReportResult("test_mk", false);
+    return;
+  }
+
+  std::string mkPath = tmpdir + "Android.mk";
+  std::string content =
+      "LOCAL_PATH := $(call my-dir)\n"
+      "\n"
+      "include $(CLEAR_VARS)\n"
+      "LOCAL_MODULE := libmath\n"
+      "LOCAL_SRC_FILES := src/math.c\n"
+      "include $(BUILD_STATIC_LIBRARY)\n"
+      "\n"
+      "include $(CLEAR_VARS)\n"
+      "LOCAL_MODULE := calculator\n"
+      "LOCAL_SRC_FILES := src/main.c\n"
+      "LOCAL_STATIC_LIBRARIES := libmath\n"
+      "include $(BUILD_EXECUTABLE)\n";
+
+  if (!WriteFile(mkPath, content)) {
+    ReportResult("test_mk", false);
+    RemoveDir(tmpdir);
+    return;
+  }
 
   gormake::MkScanner scanner;
-  scanner.ScanFile(dir + "/Android.mk");
-  auto& modules = scanner.GetModules();
-  ASSERT_EQ(modules.size(), (size_t)2);
-  ASSERT_EQ(modules[0].name, std::string("libmath"));
-  ASSERT_EQ(modules[1].name, std::string("calculator"));
-  PASS();
-  CleanupDir(dir);
+  bool ok = scanner.ScanFile(mkPath);
+  const auto& modules = scanner.GetModules();
+
+  bool pass = ok && modules.size() == 2;
+  if (pass) {
+    bool foundStatic = false;
+    bool foundExec = false;
+    for (const auto& m : modules) {
+      if (m.name == "libmath" && m.buildType == "BUILD_STATIC_LIBRARY")
+        foundStatic = true;
+      if (m.name == "calculator" && m.buildType == "BUILD_EXECUTABLE")
+        foundExec = true;
+    }
+    pass = foundStatic && foundExec;
+  }
+
+  ReportResult("test_mk", pass);
+
+  if (pass) {
+    std::string json = CaptureStdout(CallMkOutputJson, &scanner);
+    bool jsonOk = ValidateJson(json);
+    ReportResult("test_mk_json", jsonOk);
+  }
+
+  RemoveDir(tmpdir);
 }
 
-void test_gn_scanner() {
-  TEST(test_gn_scanner);
-  std::string dir = CreateTempDir();
-  fs::create_directories(dir + "/src");
+// test_gn: Create BUILD.gn with static_library + executable, scan,
+// verify targets.
+static void TestGn() {
+  std::string tmpdir = MakeTempDir();
+  if (tmpdir.empty()) {
+    ReportResult("test_gn", false);
+    return;
+  }
 
-  WriteFile(dir + "/src/math.cc", "int add(int a, int b) { return a + b; }\n");
-  WriteFile(dir + "/src/main.cc", "int main() { return 0; }\n");
-  WriteFile(dir + "/BUILD.gn",
-    "static_library(\"libmath\") {\n"
-    "  sources = [\"src/math.cc\"]\n"
-    "}\n"
-    "executable(\"calculator\") {\n"
-    "  sources = [\"src/main.cc\"]\n"
-    "  deps = [\":libmath\"]\n"
-    "}\n");
+  std::string gnPath = tmpdir + "BUILD.gn";
+  std::string content =
+      "static_library(\"libmath\") {\n"
+      "  sources = [\"src/math.cc\"]\n"
+      "}\n"
+      "\n"
+      "executable(\"calculator\") {\n"
+      "  sources = [\"src/main.cc\"]\n"
+      "  deps = [\":libmath\"]\n"
+      "  cflags = [\"-Wall\", \"-O2\"]\n"
+      "}\n";
+
+  if (!WriteFile(gnPath, content)) {
+    ReportResult("test_gn", false);
+    RemoveDir(tmpdir);
+    return;
+  }
 
   gormake::GnScanner scanner;
-  scanner.ScanFile(dir + "/BUILD.gn");
-  auto& targets = scanner.GetTargets();
-  // Should have at least 2 targets (static_library + executable)
-  if (targets.size() >= 2) {
-    PASS();
-  } else {
-    FAIL("expected >= 2 targets");
+  bool ok = scanner.ScanFile(gnPath);
+  const auto& targets = scanner.GetTargets();
+
+  bool pass = ok && targets.size() == 2;
+  if (pass) {
+    bool foundStatic = false;
+    bool foundExec = false;
+    for (const auto& t : targets) {
+      if (t.name == "libmath" && t.type == "static_library") foundStatic = true;
+      if (t.name == "calculator" && t.type == "executable") foundExec = true;
+    }
+    pass = foundStatic && foundExec;
   }
-  CleanupDir(dir);
+
+  ReportResult("test_gn", pass);
+
+  if (pass) {
+    std::string json = CaptureStdout(CallGnOutputJson, &scanner);
+    bool jsonOk = ValidateJson(json);
+    ReportResult("test_gn_json", jsonOk);
+  }
+
+  RemoveDir(tmpdir);
 }
 
-void test_cmake_scanner() {
-  TEST(test_cmake_scanner);
-  std::string dir = CreateTempDir();
-  fs::create_directories(dir + "/src");
+// test_cmake: Create CMakeLists.txt with add_library + add_executable, scan,
+// verify targets.
+static void TestCmake() {
+  std::string tmpdir = MakeTempDir();
+  if (tmpdir.empty()) {
+    ReportResult("test_cmake", false);
+    return;
+  }
 
-  WriteFile(dir + "/src/math.c", "int add(int a, int b) { return a + b; }\n");
-  WriteFile(dir + "/src/main.c", "int main() { return 0; }\n");
-  WriteFile(dir + "/CMakeLists.txt",
-    "cmake_minimum_required(VERSION 3.10)\n"
-    "project(Test C CXX)\n"
-    "add_library(math STATIC src/math.c)\n"
-    "add_executable(calculator src/main.c)\n"
-    "target_link_libraries(calculator PRIVATE math)\n");
+  std::string cmakePath = tmpdir + "CMakeLists.txt";
+  std::string content =
+      "cmake_minimum_required(VERSION 3.10)\n"
+      "project(Calculator C CXX)\n"
+      "\n"
+      "add_library(math STATIC src/math.c)\n"
+      "target_include_directories(math PUBLIC src)\n"
+      "\n"
+      "add_executable(calculator src/main.c)\n"
+      "target_link_libraries(calculator PRIVATE math)\n";
+
+  if (!WriteFile(cmakePath, content)) {
+    ReportResult("test_cmake", false);
+    RemoveDir(tmpdir);
+    return;
+  }
 
   gormake::CmakeScanner scanner;
-  scanner.ScanFile(dir + "/CMakeLists.txt");
-  auto& targets = scanner.GetTargets();
-  ASSERT_EQ(targets.size(), (size_t)2);
-  ASSERT_EQ(targets[0].name, std::string("math"));
-  ASSERT_EQ(targets[1].name, std::string("calculator"));
-  PASS();
-  CleanupDir(dir);
+  bool ok = scanner.ScanFile(cmakePath);
+  const auto& targets = scanner.GetTargets();
+
+  bool pass = ok && targets.size() == 2;
+  if (pass) {
+    bool foundLib = false;
+    bool foundExec = false;
+    for (const auto& t : targets) {
+      if (t.name == "math" && t.type == "static_library") foundLib = true;
+      if (t.name == "calculator" && t.type == "executable") foundExec = true;
+    }
+    pass = foundLib && foundExec;
+  }
+
+  ReportResult("test_cmake", pass);
+
+  if (pass) {
+    std::string json = CaptureStdout(CallCmakeOutputJson, &scanner);
+    bool jsonOk = ValidateJson(json);
+    ReportResult("test_cmake_json", jsonOk);
+  }
+
+  RemoveDir(tmpdir);
 }
 
-void test_scons_scanner() {
-  TEST(test_scons_scanner);
-  std::string dir = CreateTempDir();
-  fs::create_directories(dir + "/src");
+// test_scons: Create SConstruct with Library + Program, scan,
+// verify targets.
+static void TestScons() {
+  std::string tmpdir = MakeTempDir();
+  if (tmpdir.empty()) {
+    ReportResult("test_scons", false);
+    return;
+  }
 
-  WriteFile(dir + "/src/math.cc", "int add(int a, int b) { return a + b; }\n");
-  WriteFile(dir + "/src/main.cc", "int main() { return 0; }\n");
-  WriteFile(dir + "/SConstruct",
-    "env = Environment()\n"
-    "env.StaticLibrary('math', ['src/math.cc'])\n"
-    "env.Program('calculator', ['src/main.cc'], LIBS=['math'])\n");
+  std::string sconPath = tmpdir + "SConstruct";
+  std::string content =
+      "# Simple SCons build file\n"
+      "env = Environment()\n"
+      "env.Append(CPPPATH=['src'])\n"
+      "env.Append(CCFLAGS=['-Wall', '-O2'])\n"
+      "\n"
+      "# Build static library\n"
+      "env.StaticLibrary('math', ['src/math.cc'])\n"
+      "\n"
+      "# Build executable\n"
+      "env.Program('calculator', ['src/main.cc'], LIBS=['math'])\n";
+
+  if (!WriteFile(sconPath, content)) {
+    ReportResult("test_scons", false);
+    RemoveDir(tmpdir);
+    return;
+  }
 
   gormake::SconScanner scanner;
-  scanner.ScanFile(dir + "/SConstruct");
-  auto& targets = scanner.GetTargets();
-  if (targets.size() >= 2) {
-    PASS();
-  } else {
-    FAIL("expected >= 2 targets");
+  bool ok = scanner.ScanFile(sconPath);
+  const auto& targets = scanner.GetTargets();
+
+  bool pass = ok && targets.size() == 2;
+  if (pass) {
+    bool foundLib = false;
+    bool foundExec = false;
+    for (const auto& t : targets) {
+      if (t.name == "math" && t.type == "library") foundLib = true;
+      if (t.name == "calculator" && t.type == "program") foundExec = true;
+    }
+    pass = foundLib && foundExec;
   }
-  CleanupDir(dir);
+
+  ReportResult("test_scons", pass);
+
+  if (pass) {
+    std::string json = CaptureStdout(CallSconOutputJson, &scanner);
+    bool jsonOk = ValidateJson(json);
+    ReportResult("test_scons_json", jsonOk);
+  }
+
+  RemoveDir(tmpdir);
 }
 
-int main() {
-  printf("=== GORMAKE Scanner Tests ===\n\n");
+// test_makefile: Create Makefile with a simple rule, run engine,
+// verify target.
+static void TestMakefile() {
+  std::string tmpdir = MakeTempDir();
+  if (tmpdir.empty()) {
+    ReportResult("test_makefile", false);
+    return;
+  }
 
-  test_bp_scanner();
-  test_mk_scanner();
-  test_gn_scanner();
-  test_cmake_scanner();
-  test_scons_scanner();
+  // Create a Makefile that builds a simple target using touch.
+  std::string mkPath = tmpdir + "Makefile";
+  std::string builtFile = tmpdir + "built.txt";
+  std::string content =
+      "all: mytarget\n"
+      "\n"
+      "mytarget:\n"
+      "\ttouch " + builtFile + "\n";
 
-  printf("\n=== Results: %d passed, %d failed ===\n",
-         tests_passed, tests_failed);
-  return tests_failed > 0 ? 1 : 0;
+  if (!WriteFile(mkPath, content)) {
+    ReportResult("test_makefile", false);
+    RemoveDir(tmpdir);
+    return;
+  }
+
+  gormake::MakeOptions opts;
+  opts.makefilePath = mkPath;
+  opts.directory = tmpdir;
+  opts.goals.push_back("mytarget");
+
+  gormake::Engine engine;
+  int ret = engine.Run(opts);
+
+  bool pass = (ret == 0);
+
+  // Check that the built file exists.
+  if (pass) {
+    struct stat st;
+    pass = (stat(builtFile.c_str(), &st) == 0);
+  }
+
+  ReportResult("test_makefile", pass);
+
+  if (pass) {
+    std::string json = CaptureStdout(CallEngineOutputJson, &engine);
+    bool jsonOk = ValidateJson(json);
+    ReportResult("test_makefile_json", jsonOk);
+  }
+
+  RemoveDir(tmpdir);
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+int main(int argc, char** argv) {
+  std::cout << "========================================\n";
+  std::cout << "  GORMAKE Scanner Test Suite\n";
+  std::cout << "========================================\n\n";
+
+  TestBp();
+  TestMk();
+  TestGn();
+  TestCmake();
+  TestScons();
+  TestMakefile();
+
+  std::cout << "\n========================================\n";
+  std::cout << "  Results: " << g_pass << " passed, " << g_fail
+            << " failed\n";
+  std::cout << "========================================\n";
+
+  return g_fail > 0 ? 1 : 0;
 }

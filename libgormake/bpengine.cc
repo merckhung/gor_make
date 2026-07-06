@@ -242,7 +242,15 @@ bool BpEngine::ParseBpFiles(const std::string& rootPath) {
       if (entryStr.find("/out/") != std::string::npos) continue;
       if (entryStr.find("/bazel-") != std::string::npos) continue;
       if (entryStr.find("/.git/") != std::string::npos) continue;
-      ParseSingleBp(path);
+      try {
+        ParseSingleBp(path);
+      } catch (const std::exception& e) {
+        std::fprintf(stderr, "gor_make: [warning] error parsing %s: %s\n",
+                     path.c_str(), e.what());
+      } catch (...) {
+        std::fprintf(stderr, "gor_make: [warning] unknown error parsing %s\n",
+                     path.c_str());
+      }
     }
   }
 
