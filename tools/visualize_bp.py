@@ -1,15 +1,26 @@
 #!/usr/bin/env python3
 """
-Visualize Android.bp module relationships from gor_make JSON output.
+Visualize build target relationships from gor_make JSON output.
+
+Supports all formats: Android.bp, Android.mk, BUILD.gn, CMake, Makefile, SCons.
 
 Usage:
     gor_make --bp --json > bp.json
-    python3 visualize_bp.py bp.json
+    python3 visualize_bp.py bp.json [output_prefix]
+
+    gor_make --gn --json > gn.json
+    python3 visualize_bp.py gn.json gn_project
+
+    gor_make --cmake --json > cmake.json
+    python3 visualize_bp.py cmake.json renderdoc
+
+    gor_make --scons --json > scons.json
+    python3 visualize_bp.py scons.json gem5
 
 Produces:
-    - bp_dependency_graph.png  : Full dependency graph (matplotlib)
-    - bp_summary.txt           : Text summary of module relationships
-    - bp_stats.png             : Statistics charts (type distribution, etc.)
+    - <prefix>_dependency_graph.png  : Full dependency graph (matplotlib)
+    - <prefix>_summary.txt           : Text summary of relationships
+    - <prefix>_stats.png             : Statistics charts
 """
 
 import json
@@ -58,32 +69,46 @@ def load_json(filepath):
 def build_dependency_graph(data):
     """Build a dependency graph from the JSON data.
 
+    Supports all gor_make JSON formats (Android.bp, Android.mk, BUILD.gn,
+    CMake, Makefile, SCons).
+
     Returns:
-        nodes: dict of module_name -> {type, src_dir, srcs, ...}
-        edges: list of (from_module, to_module, dep_type)
+        nodes: dict of target_name -> {type, src_dir, srcs, ...}
+        edges: list of (from_target, to_target, dep_type)
     """
     nodes = {}
     edges = []
 
-    for mod in data.get('modules', []):
-        name = mod['name']
-        nodes[name] = mod
+    # Android.bp uses "modules", others use "targets"
+    items = data.get('modules', []) or data.get('targets', [])
 
-        # shared_libs dependencies
-        for dep in mod.get('shared_libs', []):
+    for item in items:
+        name = item['name']
+        nodes[name] = item
+
+        # Android.bp dependency types
+        for dep in item.get('shared_libs', []):
             edges.append((name, dep, 'shared'))
-
-        # static_libs dependencies
-        for dep in mod.get('static_libs', []):
+        for dep in item.get('static_libs', []):
             edges.append((name, dep, 'static'))
-
-        # whole_static_libs dependencies
-        for dep in mod.get('whole_static_libs', []):
+        for dep in item.get('whole_static_libs', []):
             edges.append((name, dep, 'whole_static'))
-
-        # header_libs dependencies
-        for dep in mod.get('header_libs', []):
+        for dep in item.get('header_libs', []):
             edges.append((name, dep, 'header'))
+
+        # BUILD.gn dependency types
+        for dep in item.get('deps', []):
+            edges.append((name, dep, 'dep'))
+        for dep in item.get('public_deps', []):
+            edges.append((name, dep, 'public_dep'))
+
+        # CMake dependency types
+        for dep in item.get('link_libs', []):
+            edges.append((name, dep, 'link'))
+
+        # Makefile dependency types
+        for dep in item.get('prerequisites', []):
+            edges.append((name, dep, 'prereq'))
 
     return nodes, edges
 
@@ -170,7 +195,7 @@ def draw_dependency_graph(nodes, edges, positions, node_set, filepath):
     ax.set_ylim(-0.05, 1.05)
     ax.set_aspect('auto')
     ax.set_facecolor('#FAFAFA')
-    ax.set_title('Android.bp Module Dependency Graph', fontsize=20, fontweight='bold', pad=20)
+    ax.set_title('Target Dependency Graph', fontsize=20, fontweight='bold', pad=20)
     ax.axis('off')
 
     # Draw edges
@@ -256,7 +281,7 @@ def draw_dependency_graph(nodes, edges, positions, node_set, filepath):
 def draw_statistics(nodes, edges, filepath):
     """Draw statistics charts."""
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    fig.suptitle('Android.bp Module Statistics', fontsize=18, fontweight='bold')
+    fig.suptitle('Target Statistics', fontsize=18, fontweight='bold')
 
     # 1. Module type distribution
     ax = axes[0, 0]
@@ -324,18 +349,19 @@ def draw_statistics(nodes, edges, filepath):
 
 def write_summary(nodes, edges, filepath):
     """Write a text summary of the module relationships."""
+    # Try to detect format from the node types
     with open(filepath, 'w') as f:
         f.write('=' * 70 + '\n')
-        f.write('Android.bp Module Relationship Summary\n')
+        f.write('Target Relationship Summary\n')
         f.write('=' * 70 + '\n\n')
 
         # Basic stats
-        f.write(f'Total modules: {len(nodes)}\n')
+        f.write(f'Total targets: {len(nodes)}\n')
         f.write(f'Total dependency edges: {len(edges)}\n\n')
 
         # Type distribution
         type_counts = Counter(n.get('type', 'unknown') for n in nodes.values())
-        f.write('Module Type Distribution:\n')
+        f.write('Target Type Distribution:\n')
         f.write('-' * 40 + '\n')
         for t, c in type_counts.most_common():
             f.write(f'  {t:40s} {c:5d}\n')
@@ -422,7 +448,8 @@ def main():
     print(f'Loading {json_file}...')
     data = load_json(json_file)
 
-    print(f'Building dependency graph from {data["module_count"]} modules...')
+    count = data.get("module_count") or data.get("target_count") or 0
+    print(f'Building dependency graph from {count} targets...')
     nodes, edges = build_dependency_graph(data)
 
     output_dir = os.path.dirname(json_file) or '.'

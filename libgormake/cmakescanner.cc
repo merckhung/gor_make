@@ -20,6 +20,7 @@
 #include <cctype>
 #include <cerrno>
 #include <cstdio>
+#include <stdexcept>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -153,7 +154,15 @@ void CmakeScanner::ScanDirectory(const std::string& dirPath) {
       if (entryStr.find("/bazel-") != std::string::npos) continue;
       if (entryStr.find("/.git/") != std::string::npos) continue;
       if (entryStr.find("/build/") != std::string::npos) continue;
-      ScanFile(entryStr);
+      try {
+        ScanFile(entryStr);
+      } catch (const std::exception& e) {
+        std::fprintf(stderr, "gor_make: [warning] error parsing %s: %s\n",
+                     entryStr.c_str(), e.what());
+      } catch (...) {
+        std::fprintf(stderr, "gor_make: [warning] unknown error parsing %s\n",
+                     entryStr.c_str());
+      }
     }
   }
 }

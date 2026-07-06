@@ -635,7 +635,7 @@ bool BpParser::SkipParenthesized() {
 }
 
 bool BpParser::ParseFunctionCall(BpValue* value) {
-  // ident(args) — skip the identifier
+  // ident(args) — handle known functions
   std::string funcName = Current().value;
   Advance();  // consume identifier
 
@@ -644,12 +644,36 @@ bool BpParser::ParseFunctionCall(BpValue* value) {
     return false;
   }
 
-  // Skip all arguments until ')'
+  // For select() calls, try to extract a default value.
+  // select({key: value, ...}) — we pick "default" key or first value.
+  if (funcName == "select") {
+    BpValue selectArg;
+    if (ParsePrimary(&selectArg)) {
+      if (selectArg.type == BpValue::MAP) {
+        auto it = selectArg.mapVal.find("default");
+        if (it != selectArg.mapVal.end()) {
+          *value = it->second;
+          return true;
+        }
+        if (!selectArg.mapVal.empty()) {
+          *value = selectArg.mapVal.begin()->second;
+          return true;
+        }
+      } else if (selectArg.type == BpValue::LIST ||
+                 selectArg.type == BpValue::STRING) {
+        *value = selectArg;
+        return true;
+      }
+    }
+    value->type = BpValue::NONE;
+    return true;
+  }
+
+  // For other function calls (release_flag(), etc.), skip arguments
   if (!SkipParenthesized()) {
     return false;
   }
 
-  // Return NONE — we don't evaluate function calls
   value->type = BpValue::NONE;
   return true;
 }
