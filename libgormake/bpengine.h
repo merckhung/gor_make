@@ -38,7 +38,7 @@ struct BpBuildOptions {
   bool silent = false;                   // -s: don't echo commands
   bool verbose = false;                  // -v: show all commands
   bool keepGoing = false;                 // -k: keep going on errors
-  bool clean = false;                    // clean build outputs
+  bool clean = false;
   bool jsonOutput = false;               // --json: output relationship JSON
   std::string buildDir = "out";          // output directory
   std::string arch = "x86_64";           // target architecture

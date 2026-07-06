@@ -15,6 +15,7 @@
  */
 
 #include "sconscanner.h"
+#include "buildenginebase.h"
 
 #include <cctype>
 #include <cstdio>
@@ -43,11 +44,6 @@ static std::string Trim(const std::string& s) {
   return s.substr(start, end - start);
 }
 
-static std::string DirName(const std::string& path) {
-  size_t slash = path.find_last_of('/');
-  return (slash == std::string::npos) ? "." : path.substr(0, slash);
-}
-
 static std::string StripComment(const std::string& line) {
   // SCons files use Python syntax: # comments
   std::string result;
@@ -71,36 +67,6 @@ static std::string StripComment(const std::string& line) {
   return result;
 }
 
-static std::string BaseName(const std::string& path) {
-  size_t slash = path.find_last_of('/');
-  std::string base = (slash == std::string::npos) ? path : path.substr(slash + 1);
-  size_t dot = base.find_last_of('.');
-  return (dot == std::string::npos) ? base : base.substr(0, dot);
-}
-
-static bool IsCppSource(const std::string& src) {
-  size_t dot = src.find_last_of('.');
-  if (dot == std::string::npos) return false;
-  std::string ext = src.substr(dot);
-  return ext == ".cc" || ext == ".cpp" || ext == ".cxx" || ext == ".C";
-}
-
-static bool IsCSource(const std::string& src) {
-  size_t dot = src.find_last_of('.');
-  if (dot == std::string::npos) return false;
-  return src.substr(dot) == ".c";
-}
-
-static bool SconFileExists(const std::string& path) {
-  struct stat st;
-  return stat(path.c_str(), &st) == 0;
-}
-
-static bool SconMkdirP(const std::string& path) {
-  std::string cmd = "mkdir -p " + path;
-  return system(cmd.c_str()) == 0;
-}
-
 // --- SconScanner implementation ---
 
 SconScanner::SconScanner() {}
@@ -115,7 +81,7 @@ bool SconScanner::ScanFile(const std::string& path) {
   if (!file.is_open()) return false;
 
   currentPath_ = path;
-  currentSrcDir_ = DirName(path);
+  currentSrcDir_ = buildutil::DirName(path);
 
   std::string line;
   while (std::getline(file, line)) {
@@ -329,7 +295,7 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
       t.path = currentPath_;
       // Sources may be in a list or individual strings
       for (size_t i = 1; i < stringArgs.size(); ++i) {
-        if (IsCppSource(stringArgs[i]) || IsCSource(stringArgs[i])) {
+        if (buildutil::IsCppSource(stringArgs[i]) || buildutil::IsCSource(stringArgs[i])) {
           t.srcs.push_back(stringArgs[i]);
         }
       }
@@ -361,7 +327,7 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
       t.srcDir = currentSrcDir_;
       t.path = currentPath_;
       for (size_t i = 1; i < stringArgs.size(); ++i) {
-        if (IsCppSource(stringArgs[i]) || IsCSource(stringArgs[i])) {
+        if (buildutil::IsCppSource(stringArgs[i]) || buildutil::IsCSource(stringArgs[i])) {
           t.srcs.push_back(stringArgs[i]);
         }
       }
@@ -393,7 +359,7 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
       t.srcDir = currentSrcDir_;
       t.path = currentPath_;
       for (size_t i = 1; i < stringArgs.size(); ++i) {
-        if (IsCppSource(stringArgs[i]) || IsCSource(stringArgs[i])) {
+        if (buildutil::IsCppSource(stringArgs[i]) || buildutil::IsCSource(stringArgs[i])) {
           t.srcs.push_back(stringArgs[i]);
         }
       }
@@ -425,7 +391,7 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
       t.srcDir = currentSrcDir_;
       t.path = currentPath_;
       for (size_t i = 1; i < stringArgs.size(); ++i) {
-        if (IsCppSource(stringArgs[i]) || IsCSource(stringArgs[i])) {
+        if (buildutil::IsCppSource(stringArgs[i]) || buildutil::IsCSource(stringArgs[i])) {
           t.srcs.push_back(stringArgs[i]);
         }
       }
@@ -451,7 +417,7 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
   if (MatchFunc(trimmed, "SharedObject", &args)) {
     auto stringArgs = ExtractStringArgs(args);
     for (const auto& s : stringArgs) {
-      if (IsCppSource(s) || IsCSource(s)) {
+      if (buildutil::IsCppSource(s) || buildutil::IsCSource(s)) {
         SconTarget t;
         t.name = s;
         t.type = "object";
@@ -468,7 +434,7 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
   if (MatchFunc(trimmed, "Object", &args)) {
     auto stringArgs = ExtractStringArgs(args);
     for (const auto& s : stringArgs) {
-      if (IsCppSource(s) || IsCSource(s)) {
+      if (buildutil::IsCppSource(s) || buildutil::IsCSource(s)) {
         SconTarget t;
         t.name = s;
         t.type = "object";
@@ -527,9 +493,9 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
       } else {
         scriptPath = currentSrcDir_ + "/" + s;
       }
-      if (SconFileExists(scriptPath)) {
+      if (buildutil::FileExists(scriptPath)) {
         ScanFile(scriptPath);
-      } else if (SconFileExists(scriptPath + "/SConscript")) {
+      } else if (buildutil::FileExists(scriptPath + "/SConscript")) {
         ScanFile(scriptPath + "/SConscript");
       }
     }
@@ -650,19 +616,16 @@ std::string SconScanner::GetOutputPath(const SconTarget& target) const {
 std::string SconScanner::GetObjectPath(const SconTarget& target,
                                         const std::string& src) const {
   std::string dir = target.srcDir.empty() ? "." : target.srcDir;
-  return dir + "/build/obj/" + target.name + "/" + BaseName(src) + ".o";
+  return dir + "/build/obj/" + target.name + "/" + buildutil::BaseName(src) + ".o";
 }
 
 bool SconScanner::NeedsRecompile(const std::string& objFile,
                                   const std::string& srcFile) const {
-  if (!SconFileExists(objFile)) return true;
-  struct stat objStat, srcStat;
-  if (stat(objFile.c_str(), &objStat) != 0) return true;
-  if (stat(srcFile.c_str(), &srcStat) != 0) return true;
-  return srcStat.st_mtime > objStat.st_mtime;
+  return buildutil::NeedsRecompile(objFile, srcFile);
 }
 
 bool SconScanner::ExecuteCmd(const std::string& cmd) {
+  if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
   std::printf("  %s\n", cmd.c_str());
   return system(cmd.c_str()) == 0;
 }
@@ -681,8 +644,7 @@ bool SconScanner::CompileSource(const SconTarget& target,
     srcPath = dir + "/" + srcPath;
   }
 
-  bool isCpp = IsCppSource(src);
-  std::string compiler = isCpp ? "g++" : "gcc";
+  std::string compiler = buildutil::GetCompiler(src);
   std::string cmd = compiler + " -c -o " + objFile + " " + srcPath;
 
   // Add env cflags
@@ -706,14 +668,14 @@ bool SconScanner::CompileSource(const SconTarget& target,
   cmd += " -Wall";
 
   std::string objDir = objFile.substr(0, objFile.find_last_of('/'));
-  SconMkdirP(objDir);
+  if (!dryRun_) buildutil::MkdirP(objDir);
   return ExecuteCmd(cmd);
 }
 
 bool SconScanner::LinkTarget(const SconTarget& target) {
   std::string outputPath = GetOutputPath(target);
   std::string dir = target.srcDir.empty() ? "." : target.srcDir;
-  SconMkdirP(dir + "/build");
+  if (!dryRun_) buildutil::MkdirP(dir + "/build");
 
   std::string objFiles;
   for (const auto& src : target.srcs) {

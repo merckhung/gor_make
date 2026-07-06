@@ -15,6 +15,7 @@
  */
 
 #include "mkscanner.h"
+#include "buildenginebase.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -268,10 +269,47 @@ void MkScanner::ProcessConditional(const std::string& line) {
   }
 }
 
+// Helper: normalize a build type string by stripping $(...) wrappers and
+// mapping to canonical build type names.
+static std::string NormalizeBuildType(const std::string& raw) {
+  std::string name = raw;
+
+  // Step 1: Strip $(...) wrapper if the entire string is wrapped
+  if (name.size() >= 3 && name[0] == '$' && name[1] == '(' &&
+      name.back() == ')') {
+    name = name.substr(2, name.size() - 3);
+  }
+
+  // Step 2: Check against known build types (all map to themselves)
+  static const std::vector<std::string> knownTypes = {
+      "BUILD_EXECUTABLE",
+      "BUILD_HOST_EXECUTABLE",
+      "BUILD_STATIC_LIBRARY",
+      "BUILD_HOST_STATIC_LIBRARY",
+      "BUILD_SHARED_LIBRARY",
+      "BUILD_HOST_SHARED_LIBRARY",
+      "BUILD_HOST_JAVA_LIBRARY",
+      "BUILD_NATIVE_TEST",
+      "BUILD_HOST_DALVIK_JAVA_LIBRARY",
+  };
+  for (const auto& known : knownTypes) {
+    if (name == known) return known;
+  }
+
+  // Step 3: BUILD_HOST_$(build_target) and similar -> BUILD_HOST_VARIABLE
+  if (StartsWith(name, "BUILD_HOST_")) {
+    return "BUILD_HOST_VARIABLE";
+  }
+
+  // Step 4: For any other pattern, keep the (stripped) inner name
+  return name;
+}
+
 void MkScanner::FlushModule(const std::string& buildType) {
   if (!inModule_) return;
 
-  current_.buildType = buildType;
+  // Normalize the build type: strip $(...) and map to canonical name
+  current_.buildType = NormalizeBuildType(buildType);
   if (!current_.name.empty()) {
     modules_.push_back(current_);
   }
@@ -320,24 +358,27 @@ void MkScanner::ProcessLine(const std::string& rawLine) {
       return;
     }
 
-    // Check for BUILD_* includes before expansion
+    // Check for BUILD_* includes before expansion.
+    // Check BUILD_HOST_* first — host build type names contain their non-host
+    // counterparts as substrings (e.g. BUILD_HOST_EXECUTABLE contains
+    // BUILD_EXECUTABLE), so they must be checked before the non-host types.
+    if (includeTarget.find("BUILD_HOST_") != std::string::npos) {
+      FlushModule(includeTarget);
+      return;
+    }
     if (includeTarget.find("BUILD_STATIC_LIBRARY") != std::string::npos) {
-      FlushModule("BUILD_STATIC_LIBRARY");
+      FlushModule(includeTarget);
       return;
     }
     if (includeTarget.find("BUILD_SHARED_LIBRARY") != std::string::npos) {
-      FlushModule("BUILD_SHARED_LIBRARY");
+      FlushModule(includeTarget);
       return;
     }
     if (includeTarget.find("BUILD_EXECUTABLE") != std::string::npos) {
-      FlushModule("BUILD_EXECUTABLE");
+      FlushModule(includeTarget);
       return;
     }
     if (includeTarget.find("BUILD_NATIVE_TEST") != std::string::npos) {
-      FlushModule("BUILD_NATIVE_TEST");
-      return;
-    }
-    if (includeTarget.find("BUILD_HOST_") != std::string::npos) {
       FlushModule(includeTarget);
       return;
     }
@@ -546,30 +587,6 @@ void MkScanner::OutputJson() const {
 
 namespace gormake {
 
-static bool MkMkdirP(const std::string& path) {
-  std::string cmd = "mkdir -p " + path;
-  return system(cmd.c_str()) == 0;
-}
-
-static bool MkFileExists(const std::string& path) {
-  struct stat st;
-  return stat(path.c_str(), &st) == 0;
-}
-
-static std::string MkBaseName(const std::string& path) {
-  size_t slash = path.find_last_of('/');
-  std::string base = (slash == std::string::npos) ? path : path.substr(slash + 1);
-  size_t dot = base.find_last_of('.');
-  return (dot == std::string::npos) ? base : base.substr(0, dot);
-}
-
-static bool IsCppSource(const std::string& src) {
-  std::string ext;
-  size_t dot = src.find_last_of('.');
-  if (dot != std::string::npos) ext = src.substr(dot);
-  return ext == ".cc" || ext == ".cpp" || ext == ".cxx" || ext == ".C";
-}
-
 std::string MkScanner::GetOutputPath(const MkModule& module) const {
   std::string dir = module.srcDir.empty() ? "." : module.srcDir;
   return dir + "/build/" + module.name;
@@ -578,19 +595,16 @@ std::string MkScanner::GetOutputPath(const MkModule& module) const {
 std::string MkScanner::GetObjectPath(const MkModule& module,
                                       const std::string& src) const {
   std::string dir = module.srcDir.empty() ? "." : module.srcDir;
-  return dir + "/build/obj/" + module.name + "/" + MkBaseName(src) + ".o";
+  return dir + "/build/obj/" + module.name + "/" + buildutil::BaseName(src) + ".o";
 }
 
 bool MkScanner::NeedsRecompile(const std::string& objFile,
                                 const std::string& srcFile) const {
-  if (!MkFileExists(objFile)) return true;
-  struct stat objStat, srcStat;
-  if (stat(objFile.c_str(), &objStat) != 0) return true;
-  if (stat(srcFile.c_str(), &srcStat) != 0) return true;
-  return srcStat.st_mtime > objStat.st_mtime;
+  return buildutil::NeedsRecompile(objFile, srcFile);
 }
 
 bool MkScanner::ExecuteCmd(const std::string& cmd) {
+  if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
   std::printf("  %s\n", cmd.c_str());
   return system(cmd.c_str()) == 0;
 }
@@ -609,8 +623,7 @@ bool MkScanner::CompileSource(const MkModule& module, const std::string& src,
     srcPath = dir + "/" + srcPath;
   }
 
-  bool isCpp = IsCppSource(src);
-  std::string compiler = isCpp ? "g++" : "gcc";
+  std::string compiler = buildutil::GetCompiler(src);
 
   std::string cmd = compiler + " -c -o " + objFile + " " + srcPath;
 
@@ -645,7 +658,7 @@ bool MkScanner::CompileSource(const MkModule& module, const std::string& src,
 
   // Create output directory
   std::string objDir = objFile.substr(0, objFile.find_last_of('/'));
-  MkMkdirP(objDir);
+  if (!dryRun_) buildutil::MkdirP(objDir);
 
   return ExecuteCmd(cmd);
 }
@@ -654,7 +667,7 @@ bool MkScanner::LinkModule(const MkModule& module) {
   std::string outputPath = GetOutputPath(module);
   std::string dir = module.srcDir.empty() ? "." : module.srcDir;
   std::string outputDir = dir + "/build";
-  MkMkdirP(outputDir);
+  if (!dryRun_) buildutil::MkdirP(outputDir);
 
   // Collect all object files
   std::string objFiles;

@@ -15,6 +15,7 @@
  */
 
 #include "cmakescanner.h"
+#include "buildenginebase.h"
 
 #include <algorithm>
 #include <cctype>
@@ -33,16 +34,6 @@
 namespace gormake {
 
 namespace fs = std::filesystem;
-
-static bool FileExists(const std::string& path) {
-  struct stat st;
-  return stat(path.c_str(), &st) == 0;
-}
-
-static std::string DirName(const std::string& path) {
-  size_t slash = path.find_last_of('/');
-  return (slash == std::string::npos) ? "." : path.substr(0, slash);
-}
 
 static std::string Trim(const std::string& s) {
   size_t start = 0;
@@ -102,7 +93,7 @@ bool CmakeScanner::ScanFile(const std::string& path) {
   if (!file.is_open()) return false;
 
   current_.path = path;
-  current_.srcDir = DirName(path);
+  current_.srcDir = buildutil::DirName(path);
   pendingLine_.clear();
   parenDepth_ = 0;
 
@@ -498,7 +489,7 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
         subdir = current_.srcDir + "/" + subdir;
       }
       std::string cmakeFile = subdir + "/CMakeLists.txt";
-      if (FileExists(cmakeFile)) {
+      if (buildutil::FileExists(cmakeFile)) {
         // Save/restore state
         auto savedVars = variables_;
         auto savedCurrent = current_;
@@ -631,11 +622,6 @@ void CmakeScanner::OutputJson() const {
 
 // --- Build implementation ---
 
-static std::string BaseName(const std::string& path) {
-  size_t slash = path.find_last_of('/');
-  return (slash == std::string::npos) ? path : path.substr(slash + 1);
-}
-
 static std::string ReplaceExt(const std::string& path,
                                const std::string& newExt) {
   size_t dot = path.find_last_of('.');
@@ -643,26 +629,10 @@ static std::string ReplaceExt(const std::string& path,
   return base + newExt;
 }
 
-static bool IsCSource(const std::string& path) {
-  return path.size() > 2 && path.substr(path.size() - 2) == ".c";
-}
-
-static bool IsCppSource(const std::string& path) {
-  if (path.size() > 3 && path.substr(path.size() - 3) == ".cc") return true;
-  if (path.size() > 4 && path.substr(path.size() - 4) == ".cpp") return true;
-  if (path.size() > 4 && path.substr(path.size() - 4) == ".cxx") return true;
-  return false;
-}
-
 static long GetMtime(const std::string& path) {
   struct stat st;
   if (stat(path.c_str(), &st) != 0) return 0;
   return st.st_mtime;
-}
-
-static bool EnsureDir(const std::string& path) {
-  std::string cmd = "mkdir -p " + path;
-  return system(cmd.c_str()) == 0;
 }
 
 static const CmakeTarget* FindTarget(const std::vector<CmakeTarget>& targets,
@@ -675,7 +645,7 @@ static const CmakeTarget* FindTarget(const std::vector<CmakeTarget>& targets,
 
 int CmakeScanner::BuildAll() {
   // Create build directory
-  if (!EnsureDir("build")) {
+  if (!dryRun_) if (!buildutil::MkdirP("build")) {
     fprintf(stderr, "gor_make: *** Failed to create build directory.\n");
     return 1;
   }
@@ -709,7 +679,7 @@ bool CmakeScanner::BuildTarget(const CmakeTarget& target) {
 
   // Create object directory for this target
   std::string objDir = "build/obj/" + target.name;
-  if (!EnsureDir(objDir)) {
+  if (!dryRun_) if (!buildutil::MkdirP(objDir)) {
     fprintf(stderr, "gor_make: *** Failed to create obj directory: %s\n",
             objDir.c_str());
     return false;
@@ -742,15 +712,15 @@ bool CmakeScanner::CompileSource(const CmakeTarget& target,
     srcPath = target.srcDir + "/" + src;
   }
 
-  if (!FileExists(srcPath)) {
+  if (!buildutil::FileExists(srcPath)) {
     fprintf(stderr, "gor_make: *** Source file not found: %s\n",
             srcPath.c_str());
     return false;
   }
 
   // Ensure obj directory exists
-  std::string objDir = DirName(objFile);
-  if (!EnsureDir(objDir)) {
+  std::string objDir = buildutil::DirName(objFile);
+  if (!dryRun_) if (!buildutil::MkdirP(objDir)) {
     fprintf(stderr, "gor_make: *** Failed to create directory: %s\n",
             objDir.c_str());
     return false;
@@ -762,10 +732,7 @@ bool CmakeScanner::CompileSource(const CmakeTarget& target,
   }
 
   // Choose compiler based on file extension
-  std::string compiler = "gcc";
-  if (IsCppSource(srcPath)) {
-    compiler = "g++";
-  }
+  std::string compiler = buildutil::GetCompiler(srcPath);
 
   // Build compilation command
   std::string cmd = compiler + " -c";
@@ -815,8 +782,8 @@ bool CmakeScanner::LinkTarget(const CmakeTarget& target) {
   std::string outPath = GetOutputPath(target);
 
   // Ensure output directory exists
-  std::string outDir = DirName(outPath);
-  if (!EnsureDir(outDir)) {
+  std::string outDir = buildutil::DirName(outPath);
+  if (!dryRun_) if (!buildutil::MkdirP(outDir)) {
     fprintf(stderr, "gor_make: *** Failed to create output directory: %s\n",
             outDir.c_str());
     return false;
@@ -907,11 +874,12 @@ std::string CmakeScanner::GetOutputPath(const CmakeTarget& target) const {
 
 std::string CmakeScanner::GetObjectPath(const CmakeTarget& target,
                                          const std::string& src) const {
-  std::string baseName = BaseName(src);
+  std::string baseName = buildutil::BaseName(src);
   return "build/obj/" + target.name + "/" + ReplaceExt(baseName, ".o");
 }
 
 bool CmakeScanner::ExecuteCmd(const std::string& cmd) {
+  if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
   int status = system(cmd.c_str());
   if (status == -1) return false;
   if (WIFEXITED(status)) {
@@ -922,10 +890,7 @@ bool CmakeScanner::ExecuteCmd(const std::string& cmd) {
 
 bool CmakeScanner::NeedsRecompile(const std::string& objFile,
                                    const std::string& srcFile) const {
-  if (access(objFile.c_str(), F_OK) != 0) return true;
-  long objMtime = GetMtime(objFile);
-  if (GetMtime(srcFile) > objMtime) return true;
-  return false;
+  return buildutil::NeedsRecompile(objFile, srcFile);
 }
 
 }  // namespace gormake

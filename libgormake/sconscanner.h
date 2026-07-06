@@ -50,6 +50,7 @@ class SconScanner {
   void ScanDirectory(const std::string& dirPath);
   const std::vector<SconTarget>& GetTargets() const;
   void OutputJson() const;
+  void SetDryRun(bool v) { dryRun_ = v; }
 
   // Build all targets. Returns 0 on success.
   int BuildAll();
@@ -100,6 +101,7 @@ class SconScanner {
   // Current file state
   std::string currentPath_;
   std::string currentSrcDir_;
+  bool dryRun_ = false;
 };
 
 }  // namespace gormake

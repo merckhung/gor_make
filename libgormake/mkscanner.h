@@ -63,6 +63,7 @@ class MkScanner {
 
   // Output all modules as JSON to stdout.
   void OutputJson() const;
+  void SetDryRun(bool v) { dryRun_ = v; }
 
   // Build all modules. Returns 0 on success.
   int BuildAll();
@@ -123,6 +124,7 @@ class MkScanner {
 
   // Conditional stack: true = active, false = inactive
   std::vector<bool> condStack_;
+  bool dryRun_ = false;
   bool active_ = true;  // Combined result of condStack_
 };
 

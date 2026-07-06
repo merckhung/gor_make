@@ -119,6 +119,7 @@ int main(int argc, char** argv) {
   bool sconsJsonOutput = false;
   std::string sconsFile;
   std::string sconsDir;
+  bool dryRun = false;
 
 
   // Parse arguments
@@ -135,6 +136,8 @@ int main(int argc, char** argv) {
     } else if (arg == "-n" || arg == "--dry-run" || arg == "--just-print" ||
                arg == "--recon") {
       opts.dryRun = true;
+      bpOpts.dryRun = true;
+      dryRun = true;
     } else if (arg == "-s" || arg == "--silent" || arg == "--quiet") {
       opts.silent = true;
     } else if (arg == "-k" || arg == "--keep-going") {
@@ -276,6 +279,7 @@ int main(int argc, char** argv) {
 
   if (mkMode) {
     gormake::MkScanner scanner;
+    scanner.SetDryRun(dryRun);
     if (!mkFile.empty()) {
       scanner.ScanFile(mkFile);
     } else if (!mkDir.empty()) {
@@ -296,6 +300,7 @@ int main(int argc, char** argv) {
 
   if (gnMode) {
     gormake::GnScanner scanner;
+    scanner.SetDryRun(dryRun);
     if (!gnFile.empty()) {
       scanner.ScanFile(gnFile);
     } else if (!gnDir.empty()) {
@@ -316,6 +321,7 @@ int main(int argc, char** argv) {
 
   if (cmakeMode) {
     gormake::CmakeScanner scanner;
+    scanner.SetDryRun(dryRun);
     if (!cmakeFile.empty()) {
       scanner.ScanFile(cmakeFile);
     } else if (!cmakeDir.empty()) {
@@ -336,6 +342,7 @@ int main(int argc, char** argv) {
 
   if (sconsMode) {
     gormake::SconScanner scanner;
+    scanner.SetDryRun(dryRun);
     if (!sconsFile.empty()) {
       scanner.ScanFile(sconsFile);
     } else if (!sconsDir.empty()) {

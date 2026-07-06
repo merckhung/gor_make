@@ -50,6 +50,7 @@ class CmakeScanner {
   void ScanDirectory(const std::string& dirPath);
   const std::vector<CmakeTarget>& GetTargets() const;
   void OutputJson() const;
+  void SetDryRun(bool v) { dryRun_ = v; }
 
   // Build all targets. Returns 0 on success.
   int BuildAll();
@@ -113,6 +114,7 @@ class CmakeScanner {
 
   // If/else stack
   std::vector<bool> condStack_;
+  bool dryRun_ = false;
   bool active_ = true;
 };
 

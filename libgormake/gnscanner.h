@@ -19,6 +19,7 @@
 
 #include <map>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace gormake {
@@ -75,6 +76,7 @@ class GnScanner {
   // Outputs the collected targets as JSON to stdout.
   // The "format" field is set to "build.gn".
   void OutputJson() const;
+  void SetDryRun(bool v) { dryRun_ = v; }
 
   // Build all targets. Returns 0 on success.
   int BuildAll();
@@ -124,6 +126,10 @@ class GnScanner {
   GnTarget current_;
   bool inTarget_;
   int braceDepth_;  // Nesting depth inside the current target block.
+
+  // For import() tracking
+  std::unordered_set<std::string> visitedFiles_;
+  bool dryRun_ = false;
 };
 
 }  // namespace gormake

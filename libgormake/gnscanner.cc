@@ -15,6 +15,7 @@
  */
 
 #include "gnscanner.h"
+#include "buildenginebase.h"
 
 #include <algorithm>
 #include <cctype>
@@ -724,7 +725,43 @@ void GnScanner::ProcessLine(const std::string& rawLine) {
     return;
   }
 
-  // Other top-level constructs (import(), template definitions, etc.)
+  // Handle import("//path/file.gni") — scan the imported file
+  if (trimmed.substr(0, 6) == "import") {
+    // Extract the string argument
+    size_t openParen = trimmed.find('(');
+    size_t closeParen = trimmed.rfind(')');
+    if (openParen != std::string::npos && closeParen != std::string::npos) {
+      std::string arg = trimmed.substr(openParen + 1, closeParen - openParen - 1);
+      arg = Trim(arg);
+      // Remove quotes
+      if (arg.size() >= 2 && (arg[0] == '"' || arg[0] == '\'')) {
+        arg = arg.substr(1, arg.size() - 2);
+      }
+      // Resolve //path to filesystem path
+      std::string importPath;
+      if (arg.substr(0, 2) == "//") {
+        // Try relative to rootDir_ if set, otherwise current srcDir
+        // Walk up to find the source root
+        importPath = current_.srcDir + "/../" + arg.substr(2);
+      } else if (arg[0] == '/') {
+        importPath = arg;
+      } else {
+        importPath = current_.srcDir + "/" + arg;
+      }
+      // Check if file exists
+      struct stat st;
+      if (stat(importPath.c_str(), &st) == 0) {
+        // Avoid re-importing the same file
+        if (visitedFiles_.find(importPath) == visitedFiles_.end()) {
+          visitedFiles_.insert(importPath);
+          ScanFile(importPath);
+        }
+      }
+    }
+    return;
+  }
+
+  // Other top-level constructs (template definitions, etc.)
   // are not handled in this simplified scanner.
 }
 
@@ -803,30 +840,6 @@ void GnScanner::OutputJson() const {
 
 namespace gormake {
 
-static bool GnMkdirP(const std::string& path) {
-  std::string cmd = "mkdir -p " + path;
-  return system(cmd.c_str()) == 0;
-}
-
-static bool GnFileExists(const std::string& path) {
-  struct stat st;
-  return stat(path.c_str(), &st) == 0;
-}
-
-static std::string GnBaseName(const std::string& path) {
-  size_t slash = path.find_last_of('/');
-  std::string base = (slash == std::string::npos) ? path : path.substr(slash + 1);
-  size_t dot = base.find_last_of('.');
-  return (dot == std::string::npos) ? base : base.substr(0, dot);
-}
-
-static bool GnIsCppSource(const std::string& src) {
-  size_t dot = src.find_last_of('.');
-  if (dot == std::string::npos) return false;
-  std::string ext = src.substr(dot);
-  return ext == ".cc" || ext == ".cpp" || ext == ".cxx" || ext == ".C";
-}
-
 std::string GnScanner::GetOutputPath(const GnTarget& target) const {
   std::string dir = target.srcDir.empty() ? "." : target.srcDir;
   return dir + "/build/" + target.name;
@@ -835,19 +848,16 @@ std::string GnScanner::GetOutputPath(const GnTarget& target) const {
 std::string GnScanner::GetObjectPath(const GnTarget& target,
                                       const std::string& src) const {
   std::string dir = target.srcDir.empty() ? "." : target.srcDir;
-  return dir + "/build/obj/" + target.name + "/" + GnBaseName(src) + ".o";
+  return dir + "/build/obj/" + target.name + "/" + buildutil::BaseName(src) + ".o";
 }
 
 bool GnScanner::NeedsRecompile(const std::string& objFile,
                                 const std::string& srcFile) const {
-  if (!GnFileExists(objFile)) return true;
-  struct stat objStat, srcStat;
-  if (stat(objFile.c_str(), &objStat) != 0) return true;
-  if (stat(srcFile.c_str(), &srcStat) != 0) return true;
-  return srcStat.st_mtime > objStat.st_mtime;
+  return buildutil::NeedsRecompile(objFile, srcFile);
 }
 
 bool GnScanner::ExecuteCmd(const std::string& cmd) {
+  if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
   std::printf("  %s\n", cmd.c_str());
   return system(cmd.c_str()) == 0;
 }
@@ -865,8 +875,7 @@ bool GnScanner::CompileSource(const GnTarget& target, const std::string& src,
     srcPath = dir + "/" + srcPath;
   }
 
-  bool isCpp = GnIsCppSource(src);
-  std::string compiler = isCpp ? "g++" : "gcc";
+  std::string compiler = buildutil::GetCompiler(src);
   std::string cmd = compiler + " -c -o " + objFile + " " + srcPath;
 
   for (const auto& f : target.cflags) cmd += " " + f;
@@ -882,14 +891,14 @@ bool GnScanner::CompileSource(const GnTarget& target, const std::string& src,
   cmd += " -Wall";
 
   std::string objDir = objFile.substr(0, objFile.find_last_of('/'));
-  GnMkdirP(objDir);
+  if (!dryRun_) buildutil::MkdirP(objDir);
   return ExecuteCmd(cmd);
 }
 
 bool GnScanner::LinkTarget(const GnTarget& target) {
   std::string outputPath = GetOutputPath(target);
   std::string dir = target.srcDir.empty() ? "." : target.srcDir;
-  GnMkdirP(dir + "/build");
+  if (!dryRun_) buildutil::MkdirP(dir + "/build");
 
   std::string objFiles;
   for (const auto& src : target.srcs) {

@@ -15,6 +15,7 @@
  */
 
 #include "bpengine.h"
+#include "buildenginebase.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -32,12 +33,6 @@
 namespace gormake {
 
 namespace fs = std::filesystem;
-
-// Helper: check if file exists
-static bool FileExists(const std::string& path) {
-  struct stat st;
-  return stat(path.c_str(), &st) == 0;
-}
 
 // Helper: get file modification time
 static long GetMtime(const std::string& path) {
@@ -71,41 +66,11 @@ static std::string Join(const std::vector<std::string>& v, const std::string& se
   return result;
 }
 
-// Helper: ensure directory exists
-static void EnsureDir(const std::string& path) {
-  fs::create_directories(path);
-}
-
-// Helper: get directory of a file path
-static std::string DirName(const std::string& path) {
-  size_t slash = path.find_last_of('/');
-  return (slash == std::string::npos) ? "." : path.substr(0, slash);
-}
-
-// Helper: get basename of a file path
-static std::string BaseName(const std::string& path) {
-  size_t slash = path.find_last_of('/');
-  return (slash == std::string::npos) ? path : path.substr(slash + 1);
-}
-
 // Helper: replace extension
 static std::string ReplaceExt(const std::string& path, const std::string& newExt) {
   size_t dot = path.find_last_of('.');
   std::string base = (dot == std::string::npos) ? path : path.substr(0, dot);
   return base + newExt;
-}
-
-// Helper: check if a file is a C source (.c)
-static bool IsCSource(const std::string& path) {
-  return path.size() > 2 && path.substr(path.size() - 2) == ".c";
-}
-
-// Helper: check if a file is a C++ source (.cc, .cpp, .cxx)
-static bool IsCppSource(const std::string& path) {
-  if (path.size() > 3 && path.substr(path.size() - 3) == ".cc") return true;
-  if (path.size() > 4 && path.substr(path.size() - 4) == ".cpp") return true;
-  if (path.size() > 4 && path.substr(path.size() - 4) == ".cxx") return true;
-  return false;
 }
 
 // Helper: check if a file is an assembly source (.S, .s)
@@ -119,8 +84,8 @@ static bool IsAsmSource(const std::string& path) {
 
 BpEngine::BpEngine() {
   // Detect available compilers
-  if (FileExists("/usr/bin/gcc")) { cc_ = "gcc"; cxx_ = "g++"; }
-  else if (FileExists("/usr/bin/clang")) { cc_ = "clang"; cxx_ = "clang++"; }
+  if (buildutil::FileExists("/usr/bin/gcc")) { cc_ = "gcc"; cxx_ = "g++"; }
+  else if (buildutil::FileExists("/usr/bin/clang")) { cc_ = "clang"; cxx_ = "clang++"; }
   ar_ = "ar";
 
   // commonCflags_ = {"-Wall", "-Werror=no-unused-parameter"};
@@ -142,21 +107,21 @@ int BpEngine::Run(const BpBuildOptions& opts) {
 
   // Parse Android.bp files
   std::string bpPath = opts.bpFilePath;
-  if (!FileExists(bpPath)) {
+  if (!buildutil::FileExists(bpPath)) {
     // Check if it's a directory
     struct stat st;
     if (stat(bpPath.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
       // It's a directory, look for Android.bp inside it
       std::string dirPath = bpPath;
       if (!dirPath.empty() && dirPath.back() == '/') dirPath.pop_back();
-      if (FileExists(dirPath + "/Android.bp")) {
+      if (buildutil::FileExists(dirPath + "/Android.bp")) {
         bpPath = dirPath + "/Android.bp";
       } else {
         // Walk the directory for Android.bp files
         ParseBpDirectory(dirPath);
         bpPath = "";  // Already parsed
       }
-    } else if (FileExists("Android.bp")) {
+    } else if (buildutil::FileExists("Android.bp")) {
       bpPath = "Android.bp";
     } else {
       fprintf(stderr, "gor_make: *** No Android.bp file found.\n");
@@ -651,7 +616,7 @@ bool BpEngine::BuildModule(const std::string& name,
 bool BpEngine::CompileModule(BpBuildModule* module) {
   // Create output directory
   std::string objDir = opts_->buildDir + "/obj/" + module->name;
-  EnsureDir(objDir);
+  if (!opts_->dryRun) buildutil::MkdirP(objDir);
 
   // Collect include directories
   std::vector<std::string> allIncludeDirs = module->includeDirs;
@@ -686,7 +651,7 @@ bool BpEngine::CompileModule(BpBuildModule* module) {
       srcPath = module->srcDir + "/" + src;
     }
 
-    if (!FileExists(srcPath)) {
+    if (!buildutil::FileExists(srcPath)) {
       fprintf(stderr, "gor_make: *** Source file not found: %s\n", srcPath.c_str());
       return false;
     }
@@ -698,7 +663,7 @@ bool BpEngine::CompileModule(BpBuildModule* module) {
     if (!needCompile) {
       // In dry-run mode, still show commands
     } else {
-      needCompile = !FileExists(objPath);
+      needCompile = !buildutil::FileExists(objPath);
       if (!needCompile) {
         needCompile = GetMtime(srcPath) > GetMtime(objPath);
       }
@@ -706,10 +671,7 @@ bool BpEngine::CompileModule(BpBuildModule* module) {
 
     if (needCompile || opts_->dryRun) {
       // Choose compiler based on file type
-      std::string compiler = cc_;
-      if (IsCppSource(srcPath)) {
-        compiler = cxx_;
-      }
+      std::string compiler = buildutil::IsCppSource(srcPath) ? cxx_ : cc_;
 
       // Build command
       std::string cmd = compiler + " -c";
@@ -721,7 +683,7 @@ bool BpEngine::CompileModule(BpBuildModule* module) {
       for (const auto& f : module->cflags) {
         cmd += " " + f;
       }
-      if (IsCppSource(srcPath)) {
+      if (buildutil::IsCppSource(srcPath)) {
         for (const auto& f : module->cppflags) {
           cmd += " " + f;
         }
@@ -759,7 +721,7 @@ bool BpEngine::LinkModule(BpBuildModule* module) {
   if (module->objectFiles.empty()) return true;
 
   std::string outPath = GetOutputPath(*module);
-  EnsureDir(DirName(outPath));
+  if (!opts_->dryRun) buildutil::MkdirP(buildutil::DirName(outPath));
 
   if (module->isStatic) {
     // Create static library with ar
@@ -769,7 +731,7 @@ bool BpEngine::LinkModule(BpBuildModule* module) {
     }
 
     // Check if relink needed
-    bool needLink = !FileExists(outPath);
+    bool needLink = !buildutil::FileExists(outPath);
     if (!needLink && !opts_->dryRun) {
       for (const auto& obj : module->objectFiles) {
         if (GetMtime(obj) > GetMtime(outPath)) {
@@ -822,7 +784,7 @@ bool BpEngine::LinkModule(BpBuildModule* module) {
       if (depMod) {
         // Link against the shared library
         std::string depOut = GetOutputPath(*depMod);
-        std::string depDir = DirName(depOut);
+        std::string depDir = buildutil::DirName(depOut);
         cmd += " -L" + depDir + " -l" + StripLibPrefix(depMod->name);
       } else {
         // System library
@@ -838,7 +800,7 @@ bool BpEngine::LinkModule(BpBuildModule* module) {
     }
 
     // Check if relink needed
-    bool needLink = !FileExists(outPath);
+    bool needLink = !buildutil::FileExists(outPath);
     if (!needLink && !opts_->dryRun) {
       for (const auto& obj : module->objectFiles) {
         if (GetMtime(obj) > GetMtime(outPath)) {
@@ -876,7 +838,7 @@ bool BpEngine::BuildGenrule(BpBuildModule* module) {
   if (module->genCmd.empty()) return true;
 
   std::string outDir = opts_->buildDir + "/gen/" + module->name;
-  EnsureDir(outDir);
+  if (!opts_->dryRun) buildutil::MkdirP(outDir);
 
   // Simplified genrule: replace $(in) and $(out)
   std::string cmd = module->genCmd;
@@ -910,7 +872,7 @@ bool BpEngine::BuildGenrule(BpBuildModule* module) {
 }
 
 void BpEngine::Clean() {
-  if (FileExists(opts_->buildDir)) {
+  if (buildutil::FileExists(opts_->buildDir)) {
     fs::remove_all(opts_->buildDir);
     printf("Cleaned %s\n", opts_->buildDir.c_str());
   }
@@ -935,7 +897,7 @@ std::string BpEngine::GetOutputPath(const BpBuildModule& module) const {
 
 std::string BpEngine::GetObjectPath(const BpBuildModule& module,
                                      const std::string& srcFile) const {
-  std::string baseName = BaseName(srcFile);
+  std::string baseName = buildutil::BaseName(srcFile);
   return opts_->buildDir + "/obj/" + module.name + "/" +
          ReplaceExt(baseName, ".o");
 }
@@ -943,9 +905,8 @@ std::string BpEngine::GetObjectPath(const BpBuildModule& module,
 bool BpEngine::NeedsRecompile(const std::string& objFile,
                               const std::string& srcFile,
                               const std::vector<std::string>& headers) const {
-  if (!FileExists(objFile)) return true;
+  if (buildutil::NeedsRecompile(objFile, srcFile)) return true;
   long objMtime = GetMtime(objFile);
-  if (GetMtime(srcFile) > objMtime) return true;
   for (const auto& h : headers) {
     if (GetMtime(h) > objMtime) return true;
   }
@@ -964,12 +925,7 @@ bool BpEngine::ExecuteCmd(const std::string& cmd, bool silent) {
     return true;  // Don't actually execute
   }
 
-  int status = system(cmd.c_str());
-  if (status == -1) return false;
-  if (WIFEXITED(status)) {
-    return WEXITSTATUS(status) == 0;
-  }
-  return false;
+  return buildutil::ExecuteCmd(cmd);
 }
 
 // Helper: escape a string for JSON output
