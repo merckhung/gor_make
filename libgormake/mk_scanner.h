@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef GORMAKE_LIBGORMAKE_MKSCANNER_H_
-#define GORMAKE_LIBGORMAKE_MKSCANNER_H_
+#ifndef GORMAKE_LIBGORMAKE_MK_SCANNER_H_
+#define GORMAKE_LIBGORMAKE_MK_SCANNER_H_
 
 #include <cstdint>
 #include <map>
@@ -29,17 +29,17 @@ namespace gormake {
 // include $(BUILD_*) blocks to define modules.
 struct MkModule {
   std::string name;              // LOCAL_MODULE
-  std::string buildType;         // BUILD_STATIC_LIBRARY, BUILD_SHARED_LIBRARY, etc.
-  std::string srcDir;            // Directory of the Android.mk file
+  std::string build_type;         // BUILD_STATIC_LIBRARY, BUILD_SHARED_LIBRARY, etc.
+  std::string src_dir;            // Directory of the Android.mk file
   std::vector<std::string> srcs;  // LOCAL_SRC_FILES
   std::vector<std::string> cflags;       // LOCAL_CFLAGS
   std::vector<std::string> cppflags;    // LOCAL_CPPFLAGS
   std::vector<std::string> ldflags;     // LOCAL_LDFLAGS
-  std::vector<std::string> sharedLibs;  // LOCAL_SHARED_LIBRARIES
-  std::vector<std::string> staticLibs;  // LOCAL_STATIC_LIBRARIES
-  std::vector<std::string> wholeStaticLibs;  // LOCAL_WHOLE_STATIC_LIBRARIES
-  std::vector<std::string> includeDirs;       // LOCAL_C_INCLUDES
-  std::vector<std::string> exportIncludeDirs;  // LOCAL_EXPORT_C_INCLUDE_DIRS
+  std::vector<std::string> shared_libs;  // LOCAL_SHARED_LIBRARIES
+  std::vector<std::string> static_libs;  // LOCAL_STATIC_LIBRARIES
+  std::vector<std::string> whole_static_libs;  // LOCAL_WHOLE_STATIC_LIBRARIES
+  std::vector<std::string> include_dirs;       // LOCAL_C_INCLUDES
+  std::vector<std::string> export_include_dirs;  // LOCAL_EXPORT_C_INCLUDE_DIRS
   std::string path;              // Path to the Android.mk file
 };
 
@@ -56,14 +56,14 @@ class MkScanner {
   bool ScanFile(const std::string& path);
 
   // Scan all Android.mk files in a directory tree.
-  void ScanDirectory(const std::string& dirPath);
+  void ScanDirectory(const std::string& dir_path);
 
   // Get all extracted modules.
   const std::vector<MkModule>& GetModules() const;
 
   // Output all modules as JSON to stdout.
   void OutputJson() const;
-  void SetDryRun(bool v) { dryRun_ = v; }
+  void SetDryRun(bool v) { dry_run_ = v; }
   void SetJobs(int j) { jobs_ = j; }
 
   // Build all modules. Returns 0 on success.
@@ -78,7 +78,7 @@ class MkScanner {
 
   // Compile a source file into an object file.
   bool CompileSource(const MkModule& module, const std::string& src,
-                     const std::string& objFile);
+                     const std::string& obj_file);
 
   // Link a module into its final output.
   bool LinkModule(const MkModule& module);
@@ -94,11 +94,11 @@ class MkScanner {
   bool ExecuteCmd(const std::string& cmd);
 
   // Check if file needs recompilation.
-  bool NeedsRecompile(const std::string& objFile,
-                      const std::string& srcFile) const;
+  bool NeedsRecompile(const std::string& obj_file,
+                      const std::string& src_file) const;
 
   // Flush the current module when BUILD_* is encountered.
-  void FlushModule(const std::string& buildType);
+  void FlushModule(const std::string& build_type);
 
   // Parse a variable assignment (VAR := value or VAR = value or VAR += value).
   bool ParseAssignment(const std::string& line, std::string* name,
@@ -121,15 +121,15 @@ class MkScanner {
 
   // Current module being built
   MkModule current_;
-  bool inModule_ = false;  // True between CLEAR_VARS and BUILD_*
+  bool in_module_ = false;  // True between CLEAR_VARS and BUILD_*
 
   // Conditional stack: true = active, false = inactive
-  std::vector<bool> condStack_;
-  bool dryRun_ = false;
+  std::vector<bool> cond_stack_;
+  bool dry_run_ = false;
   int jobs_ = 1;
-  bool active_ = true;  // Combined result of condStack_
+  bool active_ = true;  // Combined result of cond_stack_
 };
 
 }  // namespace gormake
 
-#endif  // GORMAKE_LIBGORMAKE_MKSCANNER_H_
+#endif  // GORMAKE_LIBGORMAKE_MK_SCANNER_H_

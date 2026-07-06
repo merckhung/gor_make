@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "bpparser.h"
+#include "bp_parser.h"
 
 #include <dirent.h>
 #include <sys/stat.h>
@@ -36,7 +36,7 @@ namespace gormake {
 
 std::string BpValue::AsString() const {
   if (type == STRING) {
-    return strVal;
+    return str_val;
   }
   return "";
 }
@@ -44,9 +44,9 @@ std::string BpValue::AsString() const {
 std::vector<std::string> BpValue::AsStringList() const {
   std::vector<std::string> result;
   if (type == LIST) {
-    for (const auto& v : listVal) {
+    for (const auto& v : list_val) {
       if (v.type == STRING) {
-        result.push_back(v.strVal);
+        result.push_back(v.str_val);
       }
     }
   }
@@ -57,7 +57,7 @@ std::vector<std::string> BpValue::AsStringList() const {
 BpValue BpValue::String(const std::string& s) {
   BpValue v;
   v.type = STRING;
-  v.strVal = s;
+  v.str_val = s;
   return v;
 }
 
@@ -66,7 +66,7 @@ BpValue BpValue::List(const std::vector<std::string>& vec) {
   BpValue v;
   v.type = LIST;
   for (const auto& s : vec) {
-    v.listVal.push_back(BpValue::String(s));
+    v.list_val.push_back(BpValue::String(s));
   }
   return v;
 }
@@ -454,7 +454,7 @@ bool BpParser::ParseModule(BpModule* module) {
   // Extract the module name for convenience.
   auto it = module->properties.find("name");
   if (it != module->properties.end() && it->second.IsString()) {
-    module->name = it->second.strVal;
+    module->name = it->second.str_val;
   }
 
   return true;
@@ -481,8 +481,8 @@ bool BpParser::ParseProperty(std::map<std::string, BpValue>* props) {
   // If the key already exists and both are lists, merge (Blueprint appends).
   auto it = props->find(key);
   if (it != props->end() && it->second.IsList() && val.IsList()) {
-    for (auto& e : val.listVal) {
-      it->second.listVal.push_back(std::move(e));
+    for (auto& e : val.list_val) {
+      it->second.list_val.push_back(std::move(e));
     }
   } else {
     (*props)[key] = std::move(val);
@@ -513,28 +513,28 @@ bool BpParser::ParseValue(BpValue* value) {
     // Concatenate based on types.
     if (left.type == BpValue::STRING && right.type == BpValue::STRING) {
       // String concatenation.
-      left.strVal += right.strVal;
+      left.str_val += right.str_val;
     } else if (left.type == BpValue::LIST && right.type == BpValue::LIST) {
       // List concatenation.
-      for (const auto& e : right.listVal) {
-        left.listVal.push_back(e);
+      for (const auto& e : right.list_val) {
+        left.list_val.push_back(e);
       }
     } else if (left.type == BpValue::MAP && right.type == BpValue::MAP) {
       // Map merge: right overrides left for duplicate keys.
-      for (const auto& [k, v] : right.mapVal) {
-        left.mapVal[k] = v;
+      for (const auto& [k, v] : right.map_val) {
+        left.map_val[k] = v;
       }
     } else if (left.type == BpValue::STRING && right.type == BpValue::LIST) {
       // String + list: prepend the string as a single-element list.
-      left.listVal.insert(left.listVal.begin(), BpValue::String(left.strVal));
+      left.list_val.insert(left.list_val.begin(), BpValue::String(left.str_val));
       left.type = BpValue::LIST;
-      left.strVal.clear();
-      for (const auto& e : right.listVal) {
-        left.listVal.push_back(e);
+      left.str_val.clear();
+      for (const auto& e : right.list_val) {
+        left.list_val.push_back(e);
       }
     } else if (left.type == BpValue::LIST && right.type == BpValue::STRING) {
       // List + string: append.
-      left.listVal.push_back(BpValue::String(right.strVal));
+      left.list_val.push_back(BpValue::String(right.str_val));
     } else if (left.type == BpValue::NONE) {
       // Unresolved variable; adopt right.
       left = right;
@@ -570,7 +570,7 @@ bool BpParser::ParsePrimary(BpValue* value) {
         return Error("invalid integer '" + tok.value + "' at line " +
                      std::to_string(tok.line));
       }
-      value->intVal = static_cast<int64_t>(ll);
+      value->int_val = static_cast<int64_t>(ll);
       Advance();
       return true;
     }
@@ -585,13 +585,13 @@ bool BpParser::ParsePrimary(BpValue* value) {
       // Could be: true, false, a variable reference, or a function call.
       if (tok.value == "true") {
         value->type = BpValue::BOOL;
-        value->boolVal = true;
+        value->bool_val = true;
         Advance();
         return true;
       }
       if (tok.value == "false") {
         value->type = BpValue::BOOL;
-        value->boolVal = false;
+        value->bool_val = false;
         Advance();
         return true;
       }
@@ -636,7 +636,7 @@ bool BpParser::SkipParenthesized() {
 
 bool BpParser::ParseFunctionCall(BpValue* value) {
   // ident(args) — handle known functions
-  std::string funcName = Current().value;
+  std::string func_name = Current().value;
   Advance();  // consume identifier
 
   // Expect '('
@@ -646,22 +646,22 @@ bool BpParser::ParseFunctionCall(BpValue* value) {
 
   // For select() calls, try to extract a default value.
   // select({key: value, ...}) — we pick "default" key or first value.
-  if (funcName == "select") {
-    BpValue selectArg;
-    if (ParsePrimary(&selectArg)) {
-      if (selectArg.type == BpValue::MAP) {
-        auto it = selectArg.mapVal.find("default");
-        if (it != selectArg.mapVal.end()) {
+  if (func_name == "select") {
+    BpValue select_arg;
+    if (ParsePrimary(&select_arg)) {
+      if (select_arg.type == BpValue::MAP) {
+        auto it = select_arg.map_val.find("default");
+        if (it != select_arg.map_val.end()) {
           *value = it->second;
           return true;
         }
-        if (!selectArg.mapVal.empty()) {
-          *value = selectArg.mapVal.begin()->second;
+        if (!select_arg.map_val.empty()) {
+          *value = select_arg.map_val.begin()->second;
           return true;
         }
-      } else if (selectArg.type == BpValue::LIST ||
-                 selectArg.type == BpValue::STRING) {
-        *value = selectArg;
+      } else if (select_arg.type == BpValue::LIST ||
+                 select_arg.type == BpValue::STRING) {
+        *value = select_arg;
         return true;
       }
     }
@@ -681,14 +681,14 @@ bool BpParser::ParseFunctionCall(BpValue* value) {
 bool BpParser::ParseStringLiteral(BpValue* value) {
   const Token& tok = Current();
   value->type = BpValue::STRING;
-  value->strVal = tok.value;
+  value->str_val = tok.value;
   Advance();
   return true;
 }
 
 bool BpParser::ParseList(BpValue* value) {
   value->type = BpValue::LIST;
-  value->listVal.clear();
+  value->list_val.clear();
 
   if (!Expect(TOK_LBRACKET, "'['")) {
     return false;
@@ -703,14 +703,14 @@ bool BpParser::ParseList(BpValue* value) {
     // Glob expansion: if the element is a string containing wildcard
     // characters, expand it.
     if (elem.type == BpValue::STRING &&
-        (elem.strVal.find('*') != std::string::npos ||
-         elem.strVal.find('?') != std::string::npos)) {
-      std::vector<std::string> matched = ExpandGlob(elem.strVal);
+        (elem.str_val.find('*') != std::string::npos ||
+         elem.str_val.find('?') != std::string::npos)) {
+      std::vector<std::string> matched = ExpandGlob(elem.str_val);
       for (const auto& m : matched) {
-        value->listVal.push_back(BpValue::String(m));
+        value->list_val.push_back(BpValue::String(m));
       }
     } else {
-      value->listVal.push_back(std::move(elem));
+      value->list_val.push_back(std::move(elem));
     }
 
     // Expect comma or ']'.
@@ -731,7 +731,7 @@ bool BpParser::ParseList(BpValue* value) {
 
 bool BpParser::ParseMap(BpValue* value) {
   value->type = BpValue::MAP;
-  value->mapVal.clear();
+  value->map_val.clear();
 
   if (!Expect(TOK_LBRACE, "'{'")) {
     return false;
@@ -754,7 +754,7 @@ bool BpParser::ParseMap(BpValue* value) {
       return false;
     }
 
-    value->mapVal[key] = std::move(val);
+    value->map_val[key] = std::move(val);
 
     // Trailing comma is allowed.
     if (Current().type == TOK_COMMA) {

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "vardb.h"
+#include "var_db.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -28,7 +28,7 @@
 namespace gormake {
 
 // Helper: get first word of a space-separated string
-static std::string firstWord(const std::string& s) {
+static std::string FirstWord(const std::string& s) {
   size_t sp = s.find(' ');
   return (sp == std::string::npos) ? s : s.substr(0, sp);
 }
@@ -155,7 +155,7 @@ void VariableDB::InitDefaults() {
     std::string replacement = args[1];
     std::string text = args[2];
     // Simple % pattern: prefix%suffix
-    size_t pctPos = pattern.find('%');
+    size_t pct_pos = pattern.find('%');
     std::string result;
     size_t start = 0;
     while (start < text.size()) {
@@ -164,19 +164,19 @@ void VariableDB::InitDefaults() {
           ? text.substr(start)
           : text.substr(start, sp - start);
       if (!word.empty()) {
-        if (pctPos != std::string::npos) {
-          std::string prefix = pattern.substr(0, pctPos);
-          std::string suffix = pattern.substr(pctPos + 1);
+        if (pct_pos != std::string::npos) {
+          std::string prefix = pattern.substr(0, pct_pos);
+          std::string suffix = pattern.substr(pct_pos + 1);
           if (word.size() >= prefix.size() + suffix.size()
               && word.compare(0, prefix.size(), prefix) == 0
               && word.compare(word.size() - suffix.size(), suffix.size(), suffix) == 0) {
             std::string stem = word.substr(prefix.size(),
                                            word.size() - prefix.size() - suffix.size());
-            size_t rPct = replacement.find('%');
+            size_t r_pct = replacement.find('%');
             std::string replaced;
-            if (rPct != std::string::npos) {
-              replaced = replacement.substr(0, rPct) + stem +
-                         replacement.substr(rPct + 1);
+            if (r_pct != std::string::npos) {
+              replaced = replacement.substr(0, r_pct) + stem +
+                         replacement.substr(r_pct + 1);
             } else {
               replaced = replacement;
             }
@@ -218,14 +218,14 @@ void VariableDB::InitDefaults() {
     if (args.size() < 2) return "";
     std::string patterns = args[0];
     std::string text = args[1];
-    std::vector<std::string> patList;
+    std::vector<std::string> pat_list;
     std::string cur;
     for (char c : patterns) {
       if (c == ' ' || c == '\t') {
-        if (!cur.empty()) { patList.push_back(cur); cur.clear(); }
+        if (!cur.empty()) { pat_list.push_back(cur); cur.clear(); }
       } else { cur += c; }
     }
-    if (!cur.empty()) patList.push_back(cur);
+    if (!cur.empty()) pat_list.push_back(cur);
 
     std::string result;
     size_t start = 0;
@@ -234,7 +234,7 @@ void VariableDB::InitDefaults() {
       std::string word = (sp == std::string::npos)
           ? text.substr(start)
           : text.substr(start, sp - start);
-      for (const auto& pat : patList) {
+      for (const auto& pat : pat_list) {
         size_t pct = pat.find('%');
         bool match = false;
         if (pct != std::string::npos) {
@@ -264,14 +264,14 @@ void VariableDB::InitDefaults() {
     if (args.size() < 2) return "";
     std::string patterns = args[0];
     std::string text = args[1];
-    std::vector<std::string> patList;
+    std::vector<std::string> pat_list;
     std::string cur;
     for (char c : patterns) {
       if (c == ' ' || c == '\t') {
-        if (!cur.empty()) { patList.push_back(cur); cur.clear(); }
+        if (!cur.empty()) { pat_list.push_back(cur); cur.clear(); }
       } else { cur += c; }
     }
-    if (!cur.empty()) patList.push_back(cur);
+    if (!cur.empty()) pat_list.push_back(cur);
 
     std::string result;
     size_t start = 0;
@@ -281,7 +281,7 @@ void VariableDB::InitDefaults() {
           ? text.substr(start)
           : text.substr(start, sp - start);
       bool filtered = false;
-      for (const auto& pat : patList) {
+      for (const auto& pat : pat_list) {
         size_t pct = pat.find('%');
         if (pct != std::string::npos) {
           std::string prefix = pat.substr(0, pct);
@@ -443,12 +443,12 @@ void VariableDB::InitDefaults() {
   functions_["words"] = [](const std::vector<std::string>& args) -> std::string {
     if (args.empty()) return "0";
     int count = 0;
-    bool inWord = false;
+    bool in_word = false;
     for (char c : args[0]) {
       if (c == ' ' || c == '\t') {
-        inWord = false;
-      } else if (!inWord) {
-        inWord = true;
+        in_word = false;
+      } else if (!in_word) {
+        in_word = true;
         count++;
       }
     }
@@ -567,7 +567,7 @@ void VariableDB::ImportEnvironment() {
       std::string value(eq + 1);
       vars_[name] = Variable(name, value, VarFlavor::FLAVOR_RECURSIVE,
                             VarOrigin::ORIGIN_ENVIRONMENT);
-      vars_[name].fromEnv = true;
+      vars_[name].from_env = true;
     }
   }
 }
@@ -590,8 +590,8 @@ void VariableDB::Set(const std::string& name, const std::string& value,
 }
 
 void VariableDB::SetAutomatic(const std::string& name, const std::string& value) {
-  if (!autoScope_.empty()) {
-    autoScope_.back()[name] = value;
+  if (!auto_scope_.empty()) {
+    auto_scope_.back()[name] = value;
   } else {
     vars_[name] = Variable(name, value, VarFlavor::FLAVOR_SIMPLE,
                            VarOrigin::ORIGIN_AUTOMATIC);
@@ -600,13 +600,13 @@ void VariableDB::SetAutomatic(const std::string& name, const std::string& value)
 
 const Variable* VariableDB::Get(const std::string& name) const {
   // Check automatic scope first
-  if (!autoScope_.empty()) {
-    auto it = autoScope_.back().find(name);
-    if (it != autoScope_.back().end()) {
-      static thread_local Variable autoVar;
-      autoVar = Variable(name, it->second, VarFlavor::FLAVOR_SIMPLE,
+  if (!auto_scope_.empty()) {
+    auto it = auto_scope_.back().find(name);
+    if (it != auto_scope_.back().end()) {
+      static thread_local Variable auto_var;
+      auto_var = Variable(name, it->second, VarFlavor::FLAVOR_SIMPLE,
                          VarOrigin::ORIGIN_AUTOMATIC);
-      return &autoVar;
+      return &auto_var;
     }
   }
   auto it = vars_.find(name);
@@ -617,8 +617,8 @@ const Variable* VariableDB::Get(const std::string& name) const {
 }
 
 bool VariableDB::IsDefined(const std::string& name) const {
-  if (!autoScope_.empty()) {
-    if (autoScope_.back().count(name) > 0) return true;
+  if (!auto_scope_.empty()) {
+    if (auto_scope_.back().count(name) > 0) return true;
   }
   return vars_.count(name) > 0;
 }
@@ -631,10 +631,10 @@ std::string VariableDB::Expand(const std::string& str,
                                const std::string& target,
                                const std::string& prereqs,
                                const std::string& stem) const {
-  if (expandingDepth_ > 50) {
+  if (expanding_depth_ > 50) {
     return str;  // Prevent infinite recursion
   }
-  expandingDepth_++;
+  expanding_depth_++;
 
   std::string result;
   size_t i = 0;
@@ -666,8 +666,8 @@ std::string VariableDB::Expand(const std::string& str,
         continue;
       } else {
         // Single-char variable: $X
-        std::string varName(1, open);
-        const Variable* v = Get(varName);
+        std::string var_name(1, open);
+        const Variable* v = Get(var_name);
         if (v) {
           if (v->flavor == VarFlavor::FLAVOR_SIMPLE) {
             result += v->value;
@@ -684,7 +684,7 @@ std::string VariableDB::Expand(const std::string& str,
     i++;
   }
 
-  expandingDepth_--;
+  expanding_depth_--;
   return result;
 }
 
@@ -693,37 +693,37 @@ std::string VariableDB::ExpandRef(const std::string& ref,
                                   const std::string& prereqs,
                                   const std::string& stem) const {
   // First, expand any nested references inside ref
-  std::string expandedRef = Expand(ref, target, prereqs, stem);
+  std::string expanded_ref = Expand(ref, target, prereqs, stem);
 
   // Check for function call:  function-name args
-  size_t spacePos = expandedRef.find_first_of(" \t");
-  if (spacePos != std::string::npos) {
-    std::string name = expandedRef.substr(0, spacePos);
-    std::string rawArgs = expandedRef.substr(spacePos + 1);
+  size_t space_pos = expanded_ref.find_first_of(" \t");
+  if (space_pos != std::string::npos) {
+    std::string name = expanded_ref.substr(0, space_pos);
+    std::string raw_args = expanded_ref.substr(space_pos + 1);
     // Check if it's a known function
     if (functions_.count(name) > 0 || name == "if" || name == "foreach" ||
         name == "call" || name == "origin" || name == "value") {
-      return CallFunction(name, rawArgs, target, prereqs, stem);
+      return CallFunction(name, raw_args, target, prereqs, stem);
     }
     // Otherwise it's a variable reference like $(VAR:substitution)
   }
 
   // Handle automatic variables
-  if (expandedRef == "@") return target;
-  if (expandedRef == "<") return firstWord(prereqs);
-  if (expandedRef == "^") return prereqs;
-  if (expandedRef == "?") return prereqs;  // simplified
-  if (expandedRef == "*") return stem;
-  if (expandedRef == ".") return "";  // suffix, simplified
+  if (expanded_ref == "@") return target;
+  if (expanded_ref == "<") return FirstWord(prereqs);
+  if (expanded_ref == "^") return prereqs;
+  if (expanded_ref == "?") return prereqs;  // simplified
+  if (expanded_ref == "*") return stem;
+  if (expanded_ref == ".") return "";  // suffix, simplified
 
   // Handle substitution reference: $(VAR:pattern=replacement)
-  size_t colon = expandedRef.find(':');
-  size_t equals = expandedRef.find('=', colon + 1);
+  size_t colon = expanded_ref.find(':');
+  size_t equals = expanded_ref.find('=', colon + 1);
   if (colon != std::string::npos && equals != std::string::npos && colon < equals) {
-    std::string varName = expandedRef.substr(0, colon);
-    std::string pattern = expandedRef.substr(colon + 1, equals - colon - 1);
-    std::string replacement = expandedRef.substr(equals + 1);
-    const Variable* v = Get(varName);
+    std::string var_name = expanded_ref.substr(0, colon);
+    std::string pattern = expanded_ref.substr(colon + 1, equals - colon - 1);
+    std::string replacement = expanded_ref.substr(equals + 1);
+    const Variable* v = Get(var_name);
     if (v) {
       std::string val = (v->flavor == VarFlavor::FLAVOR_SIMPLE)
           ? v->value : Expand(v->value, target, prereqs, stem);
@@ -750,7 +750,7 @@ std::string VariableDB::ExpandRef(const std::string& ref,
   }
 
   // Regular variable reference
-  const Variable* v = Get(expandedRef);
+  const Variable* v = Get(expanded_ref);
   if (v) {
     if (v->flavor == VarFlavor::FLAVOR_SIMPLE) {
       return v->value;
@@ -762,14 +762,14 @@ std::string VariableDB::ExpandRef(const std::string& ref,
 }
 
 std::string VariableDB::CallFunction(const std::string& name,
-                                     const std::string& rawArgs,
+                                     const std::string& raw_args,
                                      const std::string& target,
                                      const std::string& prereqs,
                                      const std::string& stem) const {
   // Handle control-flow functions specially since they need deferred expansion
   if (name == "if") {
     // $(if condition,then-part[,else-part])
-    auto args = SplitArgs(rawArgs);
+    auto args = SplitArgs(raw_args);
     if (args.empty()) return "";
     std::string cond = Expand(args[0], target, prereqs, stem);
     if (!cond.empty()) {
@@ -780,9 +780,9 @@ std::string VariableDB::CallFunction(const std::string& name,
 
   if (name == "foreach") {
     // $(foreach var,list,text)
-    auto args = SplitArgs(rawArgs);
+    auto args = SplitArgs(raw_args);
     if (args.size() < 3) return "";
-    std::string varName = Expand(args[0], target, prereqs, stem);
+    std::string var_name = Expand(args[0], target, prereqs, stem);
     std::string list = Expand(args[1], target, prereqs, stem);
     std::string text = args[2];
     std::string result;
@@ -792,10 +792,10 @@ std::string VariableDB::CallFunction(const std::string& name,
       std::string word = (sp == std::string::npos)
           ? list.substr(start) : list.substr(start, sp - start);
       if (!word.empty()) {
-        const_cast<VariableDB*>(this)->SetAutomatic(varName, word);
+        const_cast<VariableDB*>(this)->SetAutomatic(var_name, word);
         if (!result.empty()) result += " ";
         result += Expand(text, target, prereqs, stem);
-        const_cast<VariableDB*>(this)->autoScope_.back().erase(varName);
+        const_cast<VariableDB*>(this)->auto_scope_.back().erase(var_name);
       }
       if (sp == std::string::npos) break;
       start = sp + 1;
@@ -805,17 +805,17 @@ std::string VariableDB::CallFunction(const std::string& name,
 
   if (name == "call") {
     // $(call function,arg1,arg2,...)
-    auto args = SplitArgs(rawArgs);
+    auto args = SplitArgs(raw_args);
     if (args.empty()) return "";
-    std::string funcName = Expand(args[0], target, prereqs, stem);
-    const Variable* funcVar = Get(funcName);
-    if (!funcVar) return "";
-    std::string body = funcVar->value;
+    std::string func_name = Expand(args[0], target, prereqs, stem);
+    const Variable* func_var = Get(func_name);
+    if (!func_var) return "";
+    std::string body = func_var->value;
     // Set $1, $2, ... for arguments
     const_cast<VariableDB*>(this)->PushAutomaticScope();
     for (size_t i = 1; i < args.size(); ++i) {
-      std::string argName = std::to_string(i);
-      const_cast<VariableDB*>(this)->SetAutomatic(argName,
+      std::string arg_name = std::to_string(i);
+      const_cast<VariableDB*>(this)->SetAutomatic(arg_name,
           Expand(args[i], target, prereqs, stem));
     }
     std::string result = Expand(body, target, prereqs, stem);
@@ -824,7 +824,7 @@ std::string VariableDB::CallFunction(const std::string& name,
   }
 
   if (name == "origin") {
-    auto args = SplitArgs(rawArgs);
+    auto args = SplitArgs(raw_args);
     if (args.empty()) return "undefined";
     const Variable* v = Get(args[0]);
     if (!v) return "undefined";
@@ -841,14 +841,14 @@ std::string VariableDB::CallFunction(const std::string& name,
   }
 
   if (name == "value") {
-    auto args = SplitArgs(rawArgs);
+    auto args = SplitArgs(raw_args);
     if (args.empty()) return "";
     const Variable* v = Get(args[0]);
     return v ? v->value : "";
   }
 
   // Standard function: expand args first, then call handler
-  auto args = SplitArgs(rawArgs);
+  auto args = SplitArgs(raw_args);
   for (auto& a : args) {
     a = Expand(a, target, prereqs, stem);
   }
@@ -863,39 +863,39 @@ std::string VariableDB::CallFunction(const std::string& name,
 std::vector<std::string> VariableDB::SplitArgs(const std::string& s) {
   std::vector<std::string> result;
   std::string current;
-  int parenDepth = 0;
-  bool inWord = false;
+  int paren_depth = 0;
+  bool in_word = false;
   for (char c : s) {
     if (c == '(' || c == '{') {
-      parenDepth++;
+      paren_depth++;
       current += c;
-      inWord = true;
+      in_word = true;
     } else if (c == ')' || c == '}') {
-      parenDepth--;
+      paren_depth--;
       current += c;
-      inWord = true;
-    } else if ((c == ',' && parenDepth == 0)) {
+      in_word = true;
+    } else if ((c == ',' && paren_depth == 0)) {
       result.push_back(current);
       current.clear();
-      inWord = false;
+      in_word = false;
     } else {
       current += c;
-      if (c != ' ' && c != '\t') inWord = true;
+      if (c != ' ' && c != '\t') in_word = true;
     }
   }
-  if (inWord || !current.empty()) {
+  if (in_word || !current.empty()) {
     result.push_back(current);
   }
   return result;
 }
 
 void VariableDB::PushAutomaticScope() {
-  autoScope_.emplace_back();
+  auto_scope_.emplace_back();
 }
 
 void VariableDB::PopAutomaticScope() {
-  if (!autoScope_.empty()) {
-    autoScope_.pop_back();
+  if (!auto_scope_.empty()) {
+    auto_scope_.pop_back();
   }
 }
 

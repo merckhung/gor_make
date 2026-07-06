@@ -19,9 +19,9 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include "OS.h"
-#include "RdFile.h"
-#include "WrFile.h"
+#include "os.h"
+#include "rd_file.h"
+#include "wr_file.h"
 
 namespace gormake {
 

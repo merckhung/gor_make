@@ -87,11 +87,11 @@ struct Token {
   };
 
   // Property of a token
-  TokTyp tokenType_;
+  TokTyp token_type_;
   int64_t line_;
   int64_t offset_;
-  int64_t strPos_;
-  int64_t strLen_;
+  int64_t str_pos_;
+  int64_t str_len_;
 };
 
 }  // namespace gormake

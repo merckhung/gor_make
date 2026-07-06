@@ -20,7 +20,7 @@
 #include "line.h"
 #include "token.h"
 #include "lexer.h"
-#include "OS.h"
+#include "os.h"
 #include "table.h"
 
 namespace gormake {
@@ -100,75 +100,75 @@ Token::TokTyp Lexer::GetNextToken() {
 
   // Update the line offset and start position of the string
   tok_.offset_ = file_->GetLineOffset();
-  tok_.strPos_ = file_->GetPosition();
+  tok_.str_pos_ = file_->GetPosition();
 
   // Read a byte
-  file_->ReadByte(&strBuf_[0]);
+  file_->ReadByte(&str_buf_[0]);
 
   // Set to default 1 byte length
-  tok_.strLen_ = BYTE_1_STR;
+  tok_.str_len_ = BYTE_1_STR;
 
   // Treat it as a single byte keyword
-  tok_.tokenType_ = MatchCharToken(&strBuf_[0]);
+  tok_.token_type_ = MatchCharToken(&str_buf_[0]);
 
   // If it's a valid single byte keyword
-  if (tok_.tokenType_ != Token::TOK_INVALID) {
+  if (tok_.token_type_ != Token::TOK_INVALID) {
     // Handle for 2 bytes keyword
-    switch (tok_.tokenType_) {
+    switch (tok_.token_type_) {
       // Comment, move to next line
       case Token::TOK_COMMENT:
-        tok_.strLen_ = file_->GetLineLength();  // +1(#)-1(\n)
-        file_->ReadAt(strBuf_, tok_.strLen_, tok_.strPos_);
-        file_->AdvancePos(tok_.strLen_ - 1);  // Move to '\n'
-        return tok_.tokenType_;
+        tok_.str_len_ = file_->GetLineLength();  // +1(#)-1(\n)
+        file_->ReadAt(str_buf_, tok_.str_len_, tok_.str_pos_);
+        file_->AdvancePos(tok_.str_len_ - 1);  // Move to '\n'
+        return tok_.token_type_;
 
       // :=
       case Token::TOK_COLON:
-        strBuf_[1] = file_->SnoopCurr();
-        if (strBuf_[1] == '=') {
-          tok_.tokenType_ = Token::TOK_COLEQ;
-          tok_.strLen_ = BYTE_2_STR;
+        str_buf_[1] = file_->SnoopCurr();
+        if (str_buf_[1] == '=') {
+          tok_.token_type_ = Token::TOK_COLEQ;
+          tok_.str_len_ = BYTE_2_STR;
           file_->AdvancePos();
         }
-        return tok_.tokenType_;
+        return tok_.token_type_;
 
       // +=, or just a '+' string
       case Token::TOK_PLUS:
-        strBuf_[1] = file_->SnoopCurr();
-        if (strBuf_[1] == '=') {
-          tok_.tokenType_ = Token::TOK_PLUSEQ;
-          tok_.strLen_ = BYTE_2_STR;
+        str_buf_[1] = file_->SnoopCurr();
+        if (str_buf_[1] == '=') {
+          tok_.token_type_ = Token::TOK_PLUSEQ;
+          tok_.str_len_ = BYTE_2_STR;
           file_->AdvancePos();
         } else {
-          tok_.tokenType_ = Token::TOK_ID;
+          tok_.token_type_ = Token::TOK_ID;
         }
-        return tok_.tokenType_;
+        return tok_.token_type_;
 
       // ?=
       case Token::TOK_QMARK:
-        strBuf_[1] = file_->SnoopCurr();
-        if (strBuf_[1] == '=') {
-          tok_.tokenType_ = Token::TOK_QMEQ;
-          tok_.strLen_ = BYTE_2_STR;
+        str_buf_[1] = file_->SnoopCurr();
+        if (str_buf_[1] == '=') {
+          tok_.token_type_ = Token::TOK_QMEQ;
+          tok_.str_len_ = BYTE_2_STR;
           file_->AdvancePos();
         }
-        return tok_.tokenType_;
+        return tok_.token_type_;
 
       // $(...), or $..., variable, otherwise it a '$' string
       case Token::TOK_DOLLAR:
-        strBuf_[1] = file_->SnoopCurr();
-        if (strBuf_[1] != '(') {
+        str_buf_[1] = file_->SnoopCurr();
+        if (str_buf_[1] != '(') {
           // Locate next SPACE, TAB, or NL
-          tok_.strLen_ = file_->LocateEitherByte(' ', '\t', '\n') + 1;
+          tok_.str_len_ = file_->LocateEitherByte(' ', '\t', '\n') + 1;
           // Just a '$' string, not a variable
-          if (tok_.strLen_ == 0) {
-            tok_.tokenType_ = Token::TOK_ID;
-            return tok_.tokenType_;
+          if (tok_.str_len_ == 0) {
+            tok_.token_type_ = Token::TOK_ID;
+            return tok_.token_type_;
           }
         } else {
           // Locate the ')' character
-          tok_.strLen_ = file_->LocateByte(')') + 2;  // '$' and ')'
-          if ((tok_.strLen_ - 1) >= file_->GetLineLength()) {
+          tok_.str_len_ = file_->LocateByte(')') + 2;  // '$' and ')'
+          if ((tok_.str_len_ - 1) >= file_->GetLineLength()) {
 #ifdef DEBUG_GORMAKE
             std::cerr << "Invalid format\n";
 #endif
@@ -176,39 +176,39 @@ Token::TokTyp Lexer::GetNextToken() {
           }
         }
         // Override the token data and return
-        file_->ReadAt(strBuf_, tok_.strLen_, tok_.strPos_);
-        file_->AdvancePos(tok_.strLen_ - 1);  // Move to next token
-        tok_.tokenType_ = Token::TOK_VAR;
-        return tok_.tokenType_;
+        file_->ReadAt(str_buf_, tok_.str_len_, tok_.str_pos_);
+        file_->AdvancePos(tok_.str_len_ - 1);  // Move to next token
+        tok_.token_type_ = Token::TOK_VAR;
+        return tok_.token_type_;
 
       // Default
       default:
-        return tok_.tokenType_;
-    }  // switch (tok_.tokenType_)
-  }  // if (tok_.tokenType_ != Token::TOK_INVALID)
+        return tok_.token_type_;
+    }  // switch (tok_.token_type_)
+  }  // if (tok_.token_type_ != Token::TOK_INVALID)
 
   // Handle keyword phrase
-  tok_.tokenType_ = MatchPhraseToken();
-  if (tok_.tokenType_ != Token::TOK_INVALID) {
-    return tok_.tokenType_;
+  tok_.token_type_ = MatchPhraseToken();
+  if (tok_.token_type_ != Token::TOK_INVALID) {
+    return tok_.token_type_;
   }
 
   // Handle varying length ID token
-  tok_.tokenType_ = Token::TOK_ID;
-  file_->AdvancePos(tok_.strLen_ - 1);  // Deducted the first byte
-  return tok_.tokenType_;
+  tok_.token_type_ = Token::TOK_ID;
+  file_->AdvancePos(tok_.str_len_ - 1);  // Deducted the first byte
+  return tok_.token_type_;
 }
 
 const std::string* Lexer::GetTokenString() {
-  return new std::string(strBuf_, tok_.strLen_);
+  return new std::string(str_buf_, tok_.str_len_);
 }
 
 const std::string* Lexer::GetTokenVarString() {
-  if ((strBuf_[0] == '$')
-      && (strBuf_[1] == '(')) {
-    return new std::string(&strBuf_[2], (tok_.strLen_ - 3));
+  if ((str_buf_[0] == '$')
+      && (str_buf_[1] == '(')) {
+    return new std::string(&str_buf_[2], (tok_.str_len_ - 3));
   }
-  return new std::string(&strBuf_[1], tok_.strLen_ - 1);
+  return new std::string(&str_buf_[1], tok_.str_len_ - 1);
 }
 
 const std::string* Lexer::GetLineString() {
@@ -219,15 +219,15 @@ const std::string* Lexer::GetLineString() {
   if (len >= LN_BUF) {
     return &EMPTY_STR;
   }
-  if (file_->ReadAt(lnBuf_, len, off) != len) {
+  if (file_->ReadAt(ln_buf_, len, off) != len) {
     return &EMPTY_STR;
   }
-  lnBuf_[len] = '\0';
-  return new std::string(lnBuf_);
+  ln_buf_[len] = '\0';
+  return new std::string(ln_buf_);
 }
 
 Token::TokTyp Lexer::GetTokenType() const {
-  return tok_.tokenType_;
+  return tok_.token_type_;
 }
 
 int64_t Lexer::GetTokenLineNo() const {
@@ -239,15 +239,15 @@ int64_t Lexer::GetTokenLineOffset() const {
 }
 
 int64_t Lexer::GetTokenStrPos() const {
-  return tok_.strPos_;
+  return tok_.str_pos_;
 }
 
 int64_t Lexer::GetTokenStrLen() const {
-  return tok_.strLen_;
+  return tok_.str_len_;
 }
 
 Line::LnTyp Lexer::GetLineType() const {
-  return ln_.lineType_;
+  return ln_.line_type_;
 }
 
 int64_t Lexer::GetLineNo() const {
@@ -255,11 +255,11 @@ int64_t Lexer::GetLineNo() const {
 }
 
 int64_t Lexer::GetLineStrPos() const {
-  return ln_.strPos_;
+  return ln_.str_pos_;
 }
 
 int64_t Lexer::GetLineStrLen() const {
-  return ln_.strLen_;
+  return ln_.str_len_;
 }
 
 Line::LnTyp Lexer::DetermineLineType() {
@@ -267,75 +267,73 @@ Line::LnTyp Lexer::DetermineLineType() {
   char* p = reinterpret_cast<char*>(file_->GetFileMem());
 
   // Initial state
-  bool onlyTabAndNl = true;
-  bool equalSign = false;
-  bool firstTab = false;
+  bool only_tab_and_nl = true;
+  bool first_tab = false;
   ln_.line_ = file_->GetLineNumber();
-  ln_.lineType_ = Line::LT_EMPTY;
-  ln_.strPos_ = file_->GetPosition() - loff;
-  ln_.strLen_ = loff + file_->GetLineLength() - 1;
+  ln_.line_type_ = Line::LT_EMPTY;
+  ln_.str_pos_ = file_->GetPosition() - loff;
+  ln_.str_len_ = loff + file_->GetLineLength() - 1;
 
   // Iterate each character to determine the line type
-  for (int64_t i = 0; i < ln_.strLen_; ++i) {
+  for (int64_t i = 0; i < ln_.str_len_; ++i) {
     // Get a character
-    char c = *(p + ln_.strPos_ + i);
+    char c = *(p + ln_.str_pos_ + i);
 
     // If it's the 1st char
     if (i == 0) {
       switch (c) {
         case '#':
-          ln_.lineType_ = Line::LT_COMMENT;
-          return ln_.lineType_;
+          ln_.line_type_ = Line::LT_COMMENT;
+          return ln_.line_type_;
         case '\t':
-          firstTab = true;
-          ln_.lineType_ = Line::LT_RULE;
+          first_tab = true;
+          ln_.line_type_ = Line::LT_RULE;
           break;
       }
     }
 
     // Detect for an empty line
     if ((c != ' ') && (c != '\t') && (c != '#')) {
-      onlyTabAndNl = false;
+      only_tab_and_nl = false;
     }
 
     // Detect for '=' sign
     if (c == '=') {
-      equalSign = true;
-      if (firstTab == true) {
+      if (first_tab == true) {
         // Has to check context for a further determination
-        ln_.lineType_ = Line::LT_AMB_TABVAR;
+        ln_.line_type_ = Line::LT_AMB_TABVAR;
       } else {
-        ln_.lineType_ = Line::LT_VARIABLE;
+        ln_.line_type_ = Line::LT_VARIABLE;
       }
-      return ln_.lineType_;
+      return ln_.line_type_;
     }
 
     // Detect for '#' sign
     if (c == '#') {
-      if (onlyTabAndNl == true) {
-        ln_.lineType_ = Line::LT_COMMENT;
-        return ln_.lineType_;
+      if (only_tab_and_nl == true) {
+        ln_.line_type_ = Line::LT_COMMENT;
+        return ln_.line_type_;
       }
-      return ln_.lineType_;
+      return ln_.line_type_;
     }
 
     // Detect for ':' sign
     if (c == ':') {
-      if ((firstTab == false) && (*(p + ln_.strPos_ + i + 1) != '=')) {
-        ln_.lineType_ = Line::LT_TARGET;
-        return ln_.lineType_;
+      if ((first_tab == false) && (*(p + ln_.str_pos_ + i + 1) != '=')) {
+        ln_.line_type_ = Line::LT_TARGET;
+        return ln_.line_type_;
       }
     }
-  }  // for (int64_t i = 0; i < ln_.strLen_; ++i)
+  }  // for (int64_t i = 0; i < ln_.str_len_; ++i)
 
   // Empty line
-  if (onlyTabAndNl == true) {
-    ln_.lineType_ = Line::LT_EMPTY;
-    return ln_.lineType_;
+  if (only_tab_and_nl == true) {
+    ln_.line_type_ = Line::LT_EMPTY;
+    return ln_.line_type_;
   }
 
   // Return the line type
-  return ln_.lineType_;
+  return ln_.line_type_;
 }
 
 Token::TokTyp Lexer::MatchCharToken(const char* c) const {
@@ -350,12 +348,12 @@ Token::TokTyp Lexer::MatchCharToken(const char* c) const {
 Token::TokTyp Lexer::MatchPhraseToken() {
   int64_t base = file_->GetPosition() - BYTE_1_STR;
   size_t len = BYTE_1_STR;
-  int64_t restLen = file_->GetLength() - base + BYTE_1_STR;
+  int64_t rest_len = file_->GetLength() - base + BYTE_1_STR;
   int64_t i;
 
   // Read into buffer and detect the delimiter
   // Determine the string length first
-  for (i = BYTE_1_STR; i < restLen; ++i, ++len) {
+  for (i = BYTE_1_STR; i < rest_len; ++i, ++len) {
     // Overflow guard
     if (i >= SZ_BUF) {
 #ifdef DEBUG_GORMAKE
@@ -365,22 +363,22 @@ Token::TokTyp Lexer::MatchPhraseToken() {
     }
 
     // Snoop a byte
-    strBuf_[i] = file_->SnoopAt(base + i);
+    str_buf_[i] = file_->SnoopAt(base + i);
     // Check if it's a keyword
-    if (MatchCharToken(&strBuf_[i]) != Token::TOK_INVALID) {
+    if (MatchCharToken(&str_buf_[i]) != Token::TOK_INVALID) {
       // If not a keyword, continue
       break;
     }
   }
-  strBuf_[i] = '\0';  // Terminate the string
-  tok_.strLen_ = len;  // Update the string length
+  str_buf_[i] = '\0';  // Terminate the string
+  tok_.str_len_ = len;  // Update the string length
 
   // Match the keyword phrase table
   for (i = 0; i < NrKeyPhraseToTokTbl; ++i) {
     // Iterate each element, make sure the lengths are identical first
-    if (KeyPhraseToTokTbl[i].strLen == len) {
+    if (KeyPhraseToTokTbl[i].str_len == len) {
       // Compare the content
-      if (!memcmp(KeyPhraseToTokTbl[i].str, strBuf_, len)) {
+      if (!memcmp(KeyPhraseToTokTbl[i].str, str_buf_, len)) {
         // Found a match, return it to the caller
         return KeyPhraseToTokTbl[i].tok;
       }

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "ruledb.h"
+#include "rule_db.h"
 
 #include <memory>
 
@@ -30,43 +30,43 @@ void RuleDB::AddRule(std::unique_ptr<Rule> rule) {
   Rule* raw = rule.get();
 
   // Check if it's a pattern rule
-  bool hasPattern = false;
+  bool has_pattern = false;
   for (const auto& t : rule->targets) {
     if (t.find('%') != std::string::npos) {
-      hasPattern = true;
+      has_pattern = true;
       break;
     }
   }
 
-  if (hasPattern) {
-    rule->isPattern = true;
-    patternRules_.push_back(std::move(rule));
+  if (has_pattern) {
+    rule->is_pattern = true;
+    pattern_rules_.push_back(std::move(rule));
   } else {
     for (const auto& t : rule->targets) {
-      targetToRules_[t].push_back(raw);
+      target_to_rules_[t].push_back(raw);
     }
     rules_.push_back(std::move(rule));
   }
 }
 
 void RuleDB::AddRecipe(const std::string& target, RecipeLine recipe) {
-  auto it = targetToRules_.find(target);
-  if (it != targetToRules_.end() && !it->second.empty()) {
+  auto it = target_to_rules_.find(target);
+  if (it != target_to_rules_.end() && !it->second.empty()) {
     it->second.back()->recipes.push_back(std::move(recipe));
   }
 }
 
 const std::vector<Rule*> RuleDB::FindRules(const std::string& target) const {
-  auto it = targetToRules_.find(target);
-  if (it != targetToRules_.end()) {
+  auto it = target_to_rules_.find(target);
+  if (it != target_to_rules_.end()) {
     return it->second;
   }
   return {};
 }
 
 Rule* RuleDB::FindFirstRule(const std::string& target) const {
-  auto it = targetToRules_.find(target);
-  if (it != targetToRules_.end() && !it->second.empty()) {
+  auto it = target_to_rules_.find(target);
+  if (it != target_to_rules_.end() && !it->second.empty()) {
     return it->second.front();
   }
   return nullptr;
@@ -74,7 +74,7 @@ Rule* RuleDB::FindFirstRule(const std::string& target) const {
 
 Rule* RuleDB::FindPatternRule(const std::string& target,
                                std::string& stem) const {
-  for (const auto& rule : patternRules_) {
+  for (const auto& rule : pattern_rules_) {
     for (const auto& pat : rule->targets) {
       size_t pct = pat.find('%');
       if (pct == std::string::npos) continue;
@@ -95,11 +95,11 @@ Rule* RuleDB::FindPatternRule(const std::string& target,
 }
 
 void RuleDB::MarkPhony(const std::string& target) {
-  phonyTargets_.insert(target);
+  phony_targets_.insert(target);
 }
 
 bool RuleDB::IsPhony(const std::string& target) const {
-  return phonyTargets_.count(target) > 0;
+  return phony_targets_.count(target) > 0;
 }
 
 std::string RuleDB::GetDefaultGoal() const {

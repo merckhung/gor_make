@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef GORMAKE_LIBGORMAKE_BPENGINE_H_
-#define GORMAKE_LIBGORMAKE_BPENGINE_H_
+#ifndef GORMAKE_LIBGORMAKE_BP_ENGINE_H_
+#define GORMAKE_LIBGORMAKE_BP_ENGINE_H_
 
 #include <cstdint>
 #include <functional>
@@ -26,60 +26,60 @@
 #include <unordered_set>
 #include <vector>
 
-#include "bpparser.h"
+#include "bp_parser.h"
 
 namespace gormake {
 
 // Build configuration options for Android.bp builds.
 struct BpBuildOptions {
-  std::string bpFilePath = "Android.bp";
+  std::string bp_file_path = "Android.bp";
   std::vector<std::string> goals;       // modules to build
-  bool dryRun = false;                   // -n: print commands without executing
+  bool dry_run = false;                   // -n: print commands without executing
   bool silent = false;                   // -s: don't echo commands
   bool verbose = false;                  // -v: show all commands
-  bool keepGoing = false;                 // -k: keep going on errors
+  bool keep_going = false;                 // -k: keep going on errors
   bool clean = false;
-  bool jsonOutput = false;               // --json: output relationship JSON
-  std::string buildDir = "out";          // output directory
+  bool json_output = false;               // --json: output relationship JSON
+  std::string build_dir = "out";          // output directory
   std::string arch = "x86_64";           // target architecture
-  std::vector<std::string> cmdLineVars;  // variable overrides
+  std::vector<std::string> cmd_line_vars;  // variable overrides
 };
 
 // Represents a resolved build module after defaults expansion.
 struct BpBuildModule {
   std::string type;       // cc_binary, cc_library, cc_library_shared, etc.
   std::string name;       // module name
-  std::string srcDir;     // directory containing the Android.bp file
+  std::string src_dir;     // directory containing the Android.bp file
 
   // Build properties (after defaults expansion)
   std::vector<std::string> srcs;
-  std::vector<std::string> sharedLibs;
-  std::vector<std::string> staticLibs;
-  std::vector<std::string> wholeStaticLibs;
-  std::vector<std::string> headerLibs;
+  std::vector<std::string> shared_libs;
+  std::vector<std::string> static_libs;
+  std::vector<std::string> whole_static_libs;
+  std::vector<std::string> header_libs;
   std::vector<std::string> cflags;
   std::vector<std::string> cppflags;
   std::vector<std::string> ldflags;
-  std::vector<std::string> includeDirs;
-  std::vector<std::string> localIncludeDirs;
-  std::vector<std::string> exportIncludeDirs;
-  std::vector<std::string> systemSharedLibs;
+  std::vector<std::string> include_dirs;
+  std::vector<std::string> local_include_dirs;
+  std::vector<std::string> export_include_dirs;
+  std::vector<std::string> system_shared_libs;
   std::string stl;                    // "libc++", "libstdc++", "none", ""
-  bool isStatic = false;
-  bool isShared = false;
-  bool isBinary = false;
-  bool isTest = false;
+  bool is_static = false;
+  bool is_shared = false;
+  bool is_binary = false;
+  bool is_test = false;
 
   // Computed during build
-  std::vector<std::string> objectFiles;
-  std::string outputFile;
-  std::vector<std::string> resolvedSharedLibs;
-  std::vector<std::string> resolvedStaticLibs;
+  std::vector<std::string> object_files;
+  std::string output_file;
+  std::vector<std::string> resolved_shared_libs;
+  std::vector<std::string> resolved_static_libs;
 
   // For genrule
-  std::string genCmd;
-  std::vector<std::string> genOut;
-  std::vector<std::string> genSrcs;
+  std::string gen_cmd;
+  std::vector<std::string> gen_out;
+  std::vector<std::string> gen_srcs;
 };
 
 // The main Android.bp build engine.
@@ -96,10 +96,10 @@ class BpEngine {
 
  private:
   // Parse all Android.bp files in the tree starting from the given path.
-  bool ParseBpFiles(const std::string& rootPath);
+  bool ParseBpFiles(const std::string& root_path);
 
   // Parse all Android.bp files in a directory tree.
-  void ParseBpDirectory(const std::string& dirPath);
+  void ParseBpDirectory(const std::string& dir_path);
 
   // Parse a single Android.bp file.
   bool ParseSingleBp(const std::string& path);
@@ -111,16 +111,16 @@ class BpEngine {
   void ApplyDefaultsToModule(const BpModule& defaults, BpBuildModule* module);
 
   // Convert a parsed BpModule to a BpBuildModule.
-  std::unique_ptr<BpBuildModule> ConvertModule(const BpModule& bpModule,
-                                                  const std::string& srcDir);
+  std::unique_ptr<BpBuildModule> ConvertModule(const BpModule& bp_module,
+                                                  const std::string& src_dir);
 
   // Resolve property as string list from BpValue.
   std::vector<std::string> GetStringList(const BpValue& val,
-                                          const std::string& srcDir);
+                                          const std::string& src_dir);
 
   // Resolve a single string property, expanding globs.
   std::vector<std::string> ResolveSrcs(const BpValue& val,
-                                        const std::string& srcDir);
+                                        const std::string& src_dir);
 
   // Find a module by name.
   BpBuildModule* FindModule(const std::string& name);
@@ -147,24 +147,24 @@ class BpEngine {
 
   // Get the object file path for a source file.
   std::string GetObjectPath(const BpBuildModule& module,
-                            const std::string& srcFile) const;
+                            const std::string& src_file) const;
 
   // Check if a file needs recompilation.
-  bool NeedsRecompile(const std::string& objFile,
-                      const std::string& srcFile,
+  bool NeedsRecompile(const std::string& obj_file,
+                      const std::string& src_file,
                       const std::vector<std::string>& headers) const;
 
-  // Execute a command, handling dryRun and silent flags.
+  // Execute a command, handling dry_run and silent flags.
   bool ExecuteCmd(const std::string& cmd, bool silent = false);
 
   // All parsed modules indexed by name.
   std::unordered_map<std::string, std::unique_ptr<BpBuildModule>> modules_;
 
   // Track which files have been parsed to avoid duplicates.
-  std::unordered_set<std::string> parsedFiles_;
+  std::unordered_set<std::string> parsed_files_;
 
   // All parsed BpFiles.
-  std::vector<BpFile> bpFiles_;
+  std::vector<BpFile> bp_files_;
 
   // Build options.
   const BpBuildOptions* opts_ = nullptr;
@@ -175,9 +175,9 @@ class BpEngine {
   std::string ar_ = "ar";
 
   // Common cflags added to all compilations.
-  std::vector<std::string> commonCflags_;
+  std::vector<std::string> common_cflags_;
 };
 
 }  // namespace gormake
 
-#endif  // GORMAKE_LIBGORMAKE_BPENGINE_H_
+#endif  // GORMAKE_LIBGORMAKE_BP_ENGINE_H_

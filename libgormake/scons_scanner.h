@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef GORMAKE_LIBGORMAKE_SCONSCANNER_H_
-#define GORMAKE_LIBGORMAKE_SCONSCANNER_H_
+#ifndef GORMAKE_LIBGORMAKE_SCONS_SCANNER_H_
+#define GORMAKE_LIBGORMAKE_SCONS_SCANNER_H_
 
 #include <cstdint>
 #include <map>
@@ -29,14 +29,14 @@ namespace gormake {
 struct SconTarget {
   std::string name;
   std::string type;  // library, shared_library, program, source, gtest, simobject
-  std::string srcDir;
+  std::string src_dir;
   std::vector<std::string> srcs;
   std::vector<std::string> cflags;
   std::vector<std::string> cppflags;
   std::vector<std::string> ldflags;
-  std::vector<std::string> includeDirs;
+  std::vector<std::string> include_dirs;
   std::vector<std::string> defines;
-  std::vector<std::string> linkLibs;
+  std::vector<std::string> link_libs;
   std::string path;
 };
 
@@ -47,10 +47,10 @@ class SconScanner {
   ~SconScanner();
 
   bool ScanFile(const std::string& path);
-  void ScanDirectory(const std::string& dirPath);
+  void ScanDirectory(const std::string& dir_path);
   const std::vector<SconTarget>& GetTargets() const;
   void OutputJson() const;
-  void SetDryRun(bool v) { dryRun_ = v; }
+  void SetDryRun(bool v) { dry_run_ = v; }
   void SetJobs(int j) { jobs_ = j; }
 
   // Build all targets. Returns 0 on success.
@@ -69,7 +69,7 @@ class SconScanner {
   std::vector<std::string> ExtractList(const std::string& s) const;
 
   // Check if a function call matches a pattern
-  bool MatchFunc(const std::string& line, const std::string& funcName,
+  bool MatchFunc(const std::string& line, const std::string& func_name,
                  std::string* args) const;
 
   // JSON helpers
@@ -79,33 +79,33 @@ class SconScanner {
   // --- Build engine methods ---
   bool BuildTarget(const SconTarget& target);
   bool CompileSource(const SconTarget& target, const std::string& src,
-                     const std::string& objFile);
+                     const std::string& obj_file);
   bool LinkTarget(const SconTarget& target);
   std::string GetOutputPath(const SconTarget& target) const;
   std::string GetObjectPath(const SconTarget& target,
                             const std::string& src) const;
   bool ExecuteCmd(const std::string& cmd);
-  bool NeedsRecompile(const std::string& objFile,
-                      const std::string& srcFile) const;
+  bool NeedsRecompile(const std::string& obj_file,
+                      const std::string& src_file) const;
 
   std::vector<SconTarget> targets_;
 
   // Track visited files to avoid infinite recursion
-  std::unordered_set<std::string> visitedFiles_;
+  std::unordered_set<std::string> visited_files_;
 
   // Environment variables (simulated SCons env)
-  std::vector<std::string> envCflags_;
-  std::vector<std::string> envIncludeDirs_;
-  std::vector<std::string> envDefines_;
-  std::vector<std::string> envLibs_;
+  std::vector<std::string> env_cflags_;
+  std::vector<std::string> env_include_dirs_;
+  std::vector<std::string> env_defines_;
+  std::vector<std::string> env_libs_;
 
   // Current file state
-  std::string currentPath_;
-  std::string currentSrcDir_;
-  bool dryRun_ = false;
+  std::string current_path_;
+  std::string current_src_dir_;
+  bool dry_run_ = false;
   int jobs_ = 1;
 };
 
 }  // namespace gormake
 
-#endif  // GORMAKE_LIBGORMAKE_SCONSCANNER_H_
+#endif  // GORMAKE_LIBGORMAKE_SCONS_SCANNER_H_

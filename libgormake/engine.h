@@ -22,23 +22,23 @@
 #include <unordered_set>
 #include <vector>
 
-#include "vardb.h"
-#include "ruledb.h"
+#include "var_db.h"
+#include "rule_db.h"
 
 namespace gormake {
 
 struct MakeOptions {
-  std::string makefilePath = "Makefile";
+  std::string makefile_path = "Makefile";
   std::vector<std::string> goals;       // targets to build
-  std::vector<std::string> cmdLineVars; // VAR=value from command line
+  std::vector<std::string> cmd_line_vars; // VAR=value from command line
   std::string directory;                // -C directory
-  bool dryRun = false;                  // -n: don't execute, just print
+  bool dry_run = false;                  // -n: don't execute, just print
   bool silent = false;                  // -s: don't echo commands
-  bool keepGoing = false;               // -k: keep going on errors
-  bool ignoreErrors = false;            // -i: ignore recipe errors
-  bool alwaysMake = false;              // -B: unconditionally rebuild
-  bool printDir = false;               // -w: print directory
-  bool jsonOutput = false;              // --json: output relationship JSON
+  bool keep_going = false;               // -k: keep going on errors
+  bool ignore_errors = false;            // -i: ignore recipe errors
+  bool always_make = false;              // -B: unconditionally rebuild
+  bool print_dir = false;               // -w: print directory
+  bool json_output = false;              // --json: output relationship JSON
   int jobs = 1;                         // -j: parallel jobs (1=serial)
 };
 
@@ -59,7 +59,7 @@ class Engine {
 
   // Parse a single line from a makefile.
   // Returns true if the line was handled.
-  bool ProcessLine(const std::string& line, int lineNum);
+  bool ProcessLine(const std::string& line, int line_num);
 
   // Process include directive.
   void ProcessInclude(const std::string& args);
@@ -88,22 +88,22 @@ class Engine {
 
   VariableDB vars_;
   RuleDB rules_;
-  std::vector<MakeOptions> optsStack_;  // for nested make calls
+  std::vector<MakeOptions> opts_stack_;  // for nested make calls
   const MakeOptions* opts_ = nullptr;
 
   // Conditional state stack for ifeq/else/endif
   struct CondState {
     bool active;       // whether lines should be processed
-    bool parentActive;  // whether parent conditional is active
-    bool elseSeen;      // whether else has been seen
+    bool parent_active;  // whether parent conditional is active
+    bool else_seen;      // whether else has been seen
   };
-  std::vector<CondState> condStack_;
+  std::vector<CondState> cond_stack_;
 
   // Track targets currently being built (cycle detection)
   std::unordered_set<std::string> building_;
 
   // Current default goal
-  std::string defaultGoal_;
+  std::string default_goal_;
 };
 
 }  // namespace gormake

@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef GORMAKE_LIBGORMAKE_RDFILE_H_
-#define GORMAKE_LIBGORMAKE_RDFILE_H_
+#ifndef GORMAKE_LIBGORMAKE_RD_FILE_H_
+#define GORMAKE_LIBGORMAKE_RD_FILE_H_
 
 #include "macros.h"
 
@@ -46,7 +46,7 @@ class RdFile {
   bool SetWritable(bool en);
 
   // Random access
-  bool SetLength(int64_t newLen);
+  bool SetLength(int64_t new_len);
   int64_t GetLength();
   int64_t ReadAt(char* buf, int64_t len, int64_t offset);
   int64_t WriteAt(const char* buf, int64_t len, int64_t offset);
@@ -73,7 +73,7 @@ class RdFile {
 
   // Line operation
   int64_t ReadLine(char* buf, int64_t len);
-  int64_t ReadLines(char* buf, int64_t len, int nrLine);
+  int64_t ReadLines(char* buf, int64_t len, int nr_line);
   int64_t GetLineLength() const;
   int64_t CalibrateCurrLine();
   int64_t GetNrLine();
@@ -98,19 +98,19 @@ class RdFile {
   bool MemoryUnmapFile();
   inline char _SnoopAt(int64_t offset) const;
 
-  void *fMem_;
+  void *f_mem_;
   int fd_;
-  int64_t fileLen_;
-  int64_t currPos_;
-  int64_t currLine_;
-  int64_t byteRead_;
-  int64_t nrLine_;
+  int64_t file_len_;
+  int64_t curr_pos_;
+  int64_t curr_line_;
+  int64_t byte_read_;
+  int64_t nr_line_;
   bool writable_;
-  std::string filePath_;
+  std::string file_path_;
 
   DISALLOW_COPY_AND_ASSIGN(RdFile);
 };
 
 }  // namespace UnixFile
 
-#endif  // GORMAKE_LIBGORMAKE_RDFILE_H_
+#endif  // GORMAKE_LIBGORMAKE_RD_FILE_H_

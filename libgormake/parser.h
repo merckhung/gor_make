@@ -52,8 +52,8 @@ class Parser {
   ExprAst* ConstructVariableAssignment();
 
   std::unique_ptr<Lexer> lxr_;
-  std::vector<ExprAst*> exprAsts_;
-  std::vector<ReceiptAst*> receiptAsts_;
+  std::vector<ExprAst*> expr_asts_;
+  std::vector<ReceiptAst*> receipt_asts_;
   PsrState state_;
 };
 

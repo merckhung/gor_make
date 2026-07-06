@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#include "cmakescanner.h"
-#include "buildenginebase.h"
+#include "cmake_scanner.h"
+#include "build_engine_base.h"
 
 #include <algorithm>
 #include <cctype>
@@ -75,66 +75,66 @@ bool CmakeScanner::ScanFile(const std::string& path) {
   if (!file.is_open()) return false;
 
   current_.path = path;
-  current_.srcDir = buildutil::DirName(path);
-  pendingLine_.clear();
-  parenDepth_ = 0;
+  current_.src_dir = buildutil::DirName(path);
+  pending_line_.clear();
+  paren_depth_ = 0;
 
   std::string line;
   while (std::getline(file, line)) {
     // Accumulate multi-line commands (CMake commands can span lines
     // until parens are balanced)
-    if (parenDepth_ > 0) {
-      pendingLine_ += " " + line;
+    if (paren_depth_ > 0) {
+      pending_line_ += " " + line;
     } else {
-      pendingLine_ = line;
+      pending_line_ = line;
     }
 
     // Recompute paren depth from scratch (string-aware)
     // to handle multi-line commands correctly.
-    parenDepth_ = 0;
-    bool inString = false;
-    for (size_t i = 0; i < pendingLine_.size(); ++i) {
-      char c = pendingLine_[i];
-      if (c == '"' && (i == 0 || pendingLine_[i - 1] != '\\')) {
-        inString = !inString;
-      } else if (!inString) {
-        if (c == '(') parenDepth_++;
-        else if (c == ')') parenDepth_ = (parenDepth_ > 0) ? parenDepth_ - 1 : 0;
+    paren_depth_ = 0;
+    bool in_string = false;
+    for (size_t i = 0; i < pending_line_.size(); ++i) {
+      char c = pending_line_[i];
+      if (c == '"' && (i == 0 || pending_line_[i - 1] != '\\')) {
+        in_string = !in_string;
+      } else if (!in_string) {
+        if (c == '(') paren_depth_++;
+        else if (c == ')') paren_depth_ = (paren_depth_ > 0) ? paren_depth_ - 1 : 0;
       }
     }
 
-    if (parenDepth_ > 0) continue;
+    if (paren_depth_ > 0) continue;
 
     // Process the complete command
-    std::string fullLine = pendingLine_;
-    pendingLine_.clear();
-    ProcessLine(fullLine);
+    std::string full_line = pending_line_;
+    pending_line_.clear();
+    ProcessLine(full_line);
   }
 
   // Process any remaining pending line
-  if (!pendingLine_.empty()) {
-    ProcessLine(pendingLine_);
+  if (!pending_line_.empty()) {
+    ProcessLine(pending_line_);
   }
 
   return true;
 }
 
-void CmakeScanner::ScanDirectory(const std::string& dirPath) {
-  for (auto& entry : fs::recursive_directory_iterator(dirPath)) {
+void CmakeScanner::ScanDirectory(const std::string& dir_path) {
+  for (auto& entry : fs::recursive_directory_iterator(dir_path)) {
     if (entry.path().filename() == "CMakeLists.txt") {
-      std::string entryStr = entry.path().string();
-      if (entryStr.find("/out/") != std::string::npos) continue;
-      if (entryStr.find("/bazel-") != std::string::npos) continue;
-      if (entryStr.find("/.git/") != std::string::npos) continue;
-      if (entryStr.find("/build/") != std::string::npos) continue;
+      std::string entry_str = entry.path().string();
+      if (entry_str.find("/out/") != std::string::npos) continue;
+      if (entry_str.find("/bazel-") != std::string::npos) continue;
+      if (entry_str.find("/.git/") != std::string::npos) continue;
+      if (entry_str.find("/build/") != std::string::npos) continue;
       try {
-        ScanFile(entryStr);
+        ScanFile(entry_str);
       } catch (const std::exception& e) {
         std::fprintf(stderr, "gor_make: [warning] error parsing %s: %s\n",
-                     entryStr.c_str(), e.what());
+                     entry_str.c_str(), e.what());
       } catch (...) {
         std::fprintf(stderr, "gor_make: [warning] unknown error parsing %s\n",
-                     entryStr.c_str());
+                     entry_str.c_str());
       }
     }
   }
@@ -146,13 +146,13 @@ const std::vector<CmakeTarget>& CmakeScanner::GetTargets() const {
 
 std::string CmakeScanner::StripComment(const std::string& line) const {
   std::string result;
-  bool inString = false;
+  bool in_string = false;
   for (size_t i = 0; i < line.size(); ++i) {
     char c = line[i];
     if (c == '"' && (i == 0 || line[i - 1] != '\\')) {
-      inString = !inString;
+      in_string = !in_string;
     }
-    if (c == '#' && !inString) break;
+    if (c == '#' && !in_string) break;
     result += c;
   }
   return result;
@@ -164,8 +164,8 @@ std::string CmakeScanner::ExpandVars(const std::string& s) const {
     if (s[i] == '$' && i + 1 < s.size() && s[i + 1] == '{') {
       size_t close = s.find('}', i + 2);
       if (close != std::string::npos) {
-        std::string varName = s.substr(i + 2, close - i - 2);
-        auto it = variables_.find(varName);
+        std::string var_name = s.substr(i + 2, close - i - 2);
+        auto it = variables_.find(var_name);
         if (it != variables_.end()) {
           result += it->second;
         }
@@ -181,15 +181,15 @@ std::string CmakeScanner::ExpandVars(const std::string& s) const {
 std::vector<std::string> CmakeScanner::ParseArgs(const std::string& args) {
   std::vector<std::string> result;
   std::string current;
-  bool inString = false;
+  bool in_string = false;
 
   for (size_t i = 0; i < args.size(); ++i) {
     char c = args[i];
     if (c == '"' && (i == 0 || args[i - 1] != '\\')) {
-      inString = !inString;
+      in_string = !in_string;
       continue;
     }
-    if (!inString && (c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
+    if (!in_string && (c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
                        c == '(' || c == ')')) {
       if (!current.empty()) {
         result.push_back(ExpandVars(current));
@@ -199,8 +199,8 @@ std::vector<std::string> CmakeScanner::ParseArgs(const std::string& args) {
       // Variable reference
       size_t close = args.find('}', i + 2);
       if (close != std::string::npos) {
-        std::string varName = args.substr(i + 2, close - i - 2);
-        auto it = variables_.find(varName);
+        std::string var_name = args.substr(i + 2, close - i - 2);
+        auto it = variables_.find(var_name);
         if (it != variables_.end()) {
           current += it->second;
         }
@@ -222,62 +222,62 @@ bool CmakeScanner::ParseCommand(const std::string& line, std::string* cmd,
   if (trimmed.empty()) return false;
 
   // Find the opening paren
-  size_t parenPos = trimmed.find('(');
-  if (parenPos == std::string::npos) return false;
+  size_t paren_pos = trimmed.find('(');
+  if (paren_pos == std::string::npos) return false;
 
-  *cmd = ToLower(Trim(trimmed.substr(0, parenPos)));
+  *cmd = ToLower(Trim(trimmed.substr(0, paren_pos)));
 
   // Find the matching closing paren
   int depth = 1;
-  size_t endPos = parenPos + 1;
-  while (endPos < trimmed.size() && depth > 0) {
-    if (trimmed[endPos] == '(') depth++;
-    else if (trimmed[endPos] == ')') depth--;
-    if (depth > 0) endPos++;
+  size_t end_pos = paren_pos + 1;
+  while (end_pos < trimmed.size() && depth > 0) {
+    if (trimmed[end_pos] == '(') depth++;
+    else if (trimmed[end_pos] == ')') depth--;
+    if (depth > 0) end_pos++;
   }
 
   if (depth != 0) return false;
 
-  *args = trimmed.substr(parenPos + 1, endPos - parenPos - 1);
+  *args = trimmed.substr(paren_pos + 1, end_pos - paren_pos - 1);
   return true;
 }
 
-void CmakeScanner::ProcessLine(const std::string& rawLine) {
+void CmakeScanner::ProcessLine(const std::string& raw_line) {
   std::string cmd, args;
-  if (!ParseCommand(rawLine, &cmd, &args)) {
+  if (!ParseCommand(raw_line, &cmd, &args)) {
     // Not a command — could be a continuation or empty
     return;
   }
 
-  auto argList = ParseArgs(args);
-  if (argList.empty()) return;
+  auto arg_list = ParseArgs(args);
+  if (arg_list.empty()) return;
 
   // Handle conditionals — always process all branches (lenient mode).
   // We're scanning, not evaluating CMake logic, so we want to see
   // targets in both if and else branches.
   if (cmd == "if") {
-    condStack_.push_back(true);
+    cond_stack_.push_back(true);
     return;
   } else if (cmd == "elseif") {
     return;
   } else if (cmd == "else") {
     return;
   } else if (cmd == "endif") {
-    if (!condStack_.empty()) condStack_.pop_back();
+    if (!cond_stack_.empty()) cond_stack_.pop_back();
     return;
   }
 
   // Handle target creation commands
   if (cmd == "add_executable") {
     // add_executable(name [source1 source2 ...])
-    if (argList.size() >= 1) {
+    if (arg_list.size() >= 1) {
       CmakeTarget t;
       t.path = current_.path;
-      t.srcDir = current_.srcDir;
-      t.name = argList[0];
+      t.src_dir = current_.src_dir;
+      t.name = arg_list[0];
       t.type = "executable";
-      for (size_t i = 1; i < argList.size(); ++i) {
-        t.srcs.push_back(argList[i]);
+      for (size_t i = 1; i < arg_list.size(); ++i) {
+        t.srcs.push_back(arg_list[i]);
       }
       targets_.push_back(t);
     }
@@ -286,38 +286,38 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
 
   if (cmd == "add_library") {
     // add_library(name [STATIC|SHARED|MODULE|INTERFACE] [source1 ...])
-    if (argList.size() >= 1) {
+    if (arg_list.size() >= 1) {
       CmakeTarget t;
       t.path = current_.path;
-      t.srcDir = current_.srcDir;
-      t.name = argList[0];
+      t.src_dir = current_.src_dir;
+      t.name = arg_list[0];
 
       // Determine library type
-      std::string libType = "static_library";
-      size_t srcStart = 1;
-      if (argList.size() >= 2) {
-        std::string typeArg = ToUpper(argList[1]);
-        if (typeArg == "STATIC") {
-          libType = "static_library";
-          srcStart = 2;
-        } else if (typeArg == "SHARED") {
-          libType = "shared_library";
-          srcStart = 2;
-        } else if (typeArg == "MODULE") {
-          libType = "module_library";
-          srcStart = 2;
-        } else if (typeArg == "INTERFACE") {
-          libType = "interface_library";
-          srcStart = 2;
-        } else if (typeArg == "OBJECT") {
-          libType = "object_library";
-          srcStart = 2;
+      std::string lib_type = "static_library";
+      size_t src_start = 1;
+      if (arg_list.size() >= 2) {
+        std::string type_arg = ToUpper(arg_list[1]);
+        if (type_arg == "STATIC") {
+          lib_type = "static_library";
+          src_start = 2;
+        } else if (type_arg == "SHARED") {
+          lib_type = "shared_library";
+          src_start = 2;
+        } else if (type_arg == "MODULE") {
+          lib_type = "module_library";
+          src_start = 2;
+        } else if (type_arg == "INTERFACE") {
+          lib_type = "interface_library";
+          src_start = 2;
+        } else if (type_arg == "OBJECT") {
+          lib_type = "object_library";
+          src_start = 2;
         }
       }
-      t.type = libType;
+      t.type = lib_type;
 
-      for (size_t i = srcStart; i < argList.size(); ++i) {
-        t.srcs.push_back(argList[i]);
+      for (size_t i = src_start; i < arg_list.size(); ++i) {
+        t.srcs.push_back(arg_list[i]);
       }
       targets_.push_back(t);
     }
@@ -327,15 +327,15 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
   // Handle target property commands (apply to current target)
   if (cmd == "target_sources") {
     // target_sources(target [PRIVATE|PUBLIC|INTERFACE] source1 ...)
-    if (argList.size() >= 1) {
-      std::string targetName = argList[0];
+    if (arg_list.size() >= 1) {
+      std::string target_name = arg_list[0];
       // Find the target and add sources
       for (auto& t : targets_) {
-        if (t.name == targetName) {
-          for (size_t i = 1; i < argList.size(); ++i) {
-            std::string a = ToUpper(argList[i]);
+        if (t.name == target_name) {
+          for (size_t i = 1; i < arg_list.size(); ++i) {
+            std::string a = ToUpper(arg_list[i]);
             if (a == "PRIVATE" || a == "PUBLIC" || a == "INTERFACE") continue;
-            t.srcs.push_back(argList[i]);
+            t.srcs.push_back(arg_list[i]);
           }
           return;
         }
@@ -346,14 +346,14 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
 
   if (cmd == "target_link_libraries") {
     // target_link_libraries(target [PRIVATE|PUBLIC|INTERFACE] lib1 ...)
-    if (argList.size() >= 1) {
-      std::string targetName = argList[0];
+    if (arg_list.size() >= 1) {
+      std::string target_name = arg_list[0];
       for (auto& t : targets_) {
-        if (t.name == targetName) {
-          for (size_t i = 1; i < argList.size(); ++i) {
-            std::string a = ToUpper(argList[i]);
+        if (t.name == target_name) {
+          for (size_t i = 1; i < arg_list.size(); ++i) {
+            std::string a = ToUpper(arg_list[i]);
             if (a == "PRIVATE" || a == "PUBLIC" || a == "INTERFACE") continue;
-            t.linkLibs.push_back(argList[i]);
+            t.link_libs.push_back(arg_list[i]);
           }
           return;
         }
@@ -363,15 +363,15 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
   }
 
   if (cmd == "target_include_directories") {
-    if (argList.size() >= 1) {
-      std::string targetName = argList[0];
+    if (arg_list.size() >= 1) {
+      std::string target_name = arg_list[0];
       for (auto& t : targets_) {
-        if (t.name == targetName) {
-          for (size_t i = 1; i < argList.size(); ++i) {
-            std::string a = ToUpper(argList[i]);
+        if (t.name == target_name) {
+          for (size_t i = 1; i < arg_list.size(); ++i) {
+            std::string a = ToUpper(arg_list[i]);
             if (a == "PRIVATE" || a == "PUBLIC" || a == "INTERFACE") continue;
             if (a == "BEFORE" || a == "SYSTEM") continue;
-            t.includeDirs.push_back(argList[i]);
+            t.include_dirs.push_back(arg_list[i]);
           }
           return;
         }
@@ -381,14 +381,14 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
   }
 
   if (cmd == "target_compile_definitions") {
-    if (argList.size() >= 1) {
-      std::string targetName = argList[0];
+    if (arg_list.size() >= 1) {
+      std::string target_name = arg_list[0];
       for (auto& t : targets_) {
-        if (t.name == targetName) {
-          for (size_t i = 1; i < argList.size(); ++i) {
-            std::string a = ToUpper(argList[i]);
+        if (t.name == target_name) {
+          for (size_t i = 1; i < arg_list.size(); ++i) {
+            std::string a = ToUpper(arg_list[i]);
             if (a == "PRIVATE" || a == "PUBLIC" || a == "INTERFACE") continue;
-            t.defines.push_back(argList[i]);
+            t.defines.push_back(arg_list[i]);
           }
           return;
         }
@@ -398,14 +398,14 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
   }
 
   if (cmd == "target_compile_options") {
-    if (argList.size() >= 1) {
-      std::string targetName = argList[0];
+    if (arg_list.size() >= 1) {
+      std::string target_name = arg_list[0];
       for (auto& t : targets_) {
-        if (t.name == targetName) {
-          for (size_t i = 1; i < argList.size(); ++i) {
-            std::string a = ToUpper(argList[i]);
+        if (t.name == target_name) {
+          for (size_t i = 1; i < arg_list.size(); ++i) {
+            std::string a = ToUpper(arg_list[i]);
             if (a == "PRIVATE" || a == "PUBLIC" || a == "INTERFACE") continue;
-            t.compileOptions.push_back(argList[i]);
+            t.compile_options.push_back(arg_list[i]);
           }
           return;
         }
@@ -417,7 +417,7 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
   // Global commands
   if (cmd == "include_directories") {
     // Apply to all subsequent targets — store as a global var
-    for (const auto& a : argList) {
+    for (const auto& a : arg_list) {
       variables_["CMAKE_INCLUDE_DIRS"] =
           variables_["CMAKE_INCLUDE_DIRS"] + " " + a;
     }
@@ -425,7 +425,7 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
   }
 
   if (cmd == "add_compile_options") {
-    for (const auto& a : argList) {
+    for (const auto& a : arg_list) {
       variables_["CMAKE_COMPILE_OPTIONS"] =
           variables_["CMAKE_COMPILE_OPTIONS"] + " " + a;
     }
@@ -433,7 +433,7 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
   }
 
   if (cmd == "add_definitions") {
-    for (const auto& a : argList) {
+    for (const auto& a : arg_list) {
       variables_["CMAKE_DEFINITIONS"] =
           variables_["CMAKE_DEFINITIONS"] + " " + a;
     }
@@ -450,40 +450,40 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
       cmd == "option" || cmd == "find_package" || cmd == "enable_testing" ||
       cmd == "enable_language" || cmd == "cmake_policy") {
     // Handle set() for variable tracking
-    if (cmd == "set" && argList.size() >= 2) {
-      std::string varName = argList[0];
-      std::string varValue;
-      for (size_t i = 1; i < argList.size(); ++i) {
-        if (i > 1) varValue += ";";
-        varValue += argList[i];
+    if (cmd == "set" && arg_list.size() >= 2) {
+      std::string var_name = arg_list[0];
+      std::string var_value;
+      for (size_t i = 1; i < arg_list.size(); ++i) {
+        if (i > 1) var_value += ";";
+        var_value += arg_list[i];
       }
-      variables_[varName] = varValue;
+      variables_[var_name] = var_value;
     }
     return;
   }
 
   // add_subdirectory — scan the subdirectory
   if (cmd == "add_subdirectory") {
-    if (!argList.empty()) {
-      std::string subdir = argList[0];
-      // Make relative to current srcDir
+    if (!arg_list.empty()) {
+      std::string subdir = arg_list[0];
+      // Make relative to current src_dir
       if (subdir[0] != '/') {
-        subdir = current_.srcDir + "/" + subdir;
+        subdir = current_.src_dir + "/" + subdir;
       }
-      std::string cmakeFile = subdir + "/CMakeLists.txt";
-      if (buildutil::FileExists(cmakeFile)) {
+      std::string cmake_file = subdir + "/CMakeLists.txt";
+      if (buildutil::FileExists(cmake_file)) {
         // Save/restore state
-        auto savedVars = variables_;
-        auto savedCurrent = current_;
-        bool savedInTarget = inTarget_;
-        std::string savedTargetName = currentTargetName_;
+        auto saved_vars = variables_;
+        auto saved_current = current_;
+        bool saved_in_target = in_target_;
+        std::string saved_target_name = current_target_name_;
 
-        ScanFile(cmakeFile);
+        ScanFile(cmake_file);
 
-        variables_ = savedVars;
-        current_ = savedCurrent;
-        inTarget_ = savedInTarget;
-        currentTargetName_ = savedTargetName;
+        variables_ = saved_vars;
+        current_ = saved_current;
+        in_target_ = saved_in_target;
+        current_target_name_ = saved_target_name;
       }
     }
     return;
@@ -492,11 +492,11 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
   // add_custom_target — skip but don't crash
   if (cmd == "add_custom_target") {
     // Create a target entry for visibility
-    if (!argList.empty()) {
+    if (!arg_list.empty()) {
       CmakeTarget t;
-      t.name = argList[0];
+      t.name = arg_list[0];
       t.type = "custom_target";
-      t.srcDir = current_.srcDir;
+      t.src_dir = current_.src_dir;
       t.path = current_.path;
       targets_.push_back(t);
     }
@@ -506,11 +506,11 @@ void CmakeScanner::ProcessLine(const std::string& rawLine) {
 
 void CmakeScanner::FlushTarget(const std::string& type,
                                 const std::string& name) {
-  if (!inTarget_) return;
+  if (!in_target_) return;
   current_.type = type;
   current_.name = name;
   targets_.push_back(current_);
-  inTarget_ = false;
+  in_target_ = false;
 }
 
 // --- JSON helpers ---
@@ -560,7 +560,7 @@ void CmakeScanner::OutputJson() const {
     printf("    {\n");
     printf("      \"name\": \"%s\",\n", JsonEscape(t.name).c_str());
     printf("      \"type\": \"%s\",\n", JsonEscape(t.type).c_str());
-    printf("      \"src_dir\": \"%s\",\n", JsonEscape(t.srcDir).c_str());
+    printf("      \"src_dir\": \"%s\",\n", JsonEscape(t.src_dir).c_str());
     printf("      \"path\": \"%s\",\n", JsonEscape(t.path).c_str());
 
     printf("      \"srcs\": ");
@@ -568,7 +568,7 @@ void CmakeScanner::OutputJson() const {
     printf(",\n");
 
     printf("      \"link_libs\": ");
-    OutputArray(t.linkLibs);
+    OutputArray(t.link_libs);
     printf(",\n");
 
     printf("      \"cflags\": ");
@@ -584,7 +584,7 @@ void CmakeScanner::OutputJson() const {
     printf(",\n");
 
     printf("      \"include_dirs\": ");
-    OutputArray(t.includeDirs);
+    OutputArray(t.include_dirs);
     printf(",\n");
 
     printf("      \"defines\": ");
@@ -592,7 +592,7 @@ void CmakeScanner::OutputJson() const {
     printf(",\n");
 
     printf("      \"compile_options\": ");
-    OutputArray(t.compileOptions);
+    OutputArray(t.compile_options);
     printf("\n");
 
     printf("    }");
@@ -605,10 +605,10 @@ void CmakeScanner::OutputJson() const {
 // --- Build implementation ---
 
 static std::string ReplaceExt(const std::string& path,
-                               const std::string& newExt) {
+                               const std::string& new_ext) {
   size_t dot = path.find_last_of('.');
   std::string base = (dot == std::string::npos) ? path : path.substr(0, dot);
-  return base + newExt;
+  return base + new_ext;
 }
 
 static const CmakeTarget* FindTarget(const std::vector<CmakeTarget>& targets,
@@ -621,7 +621,7 @@ static const CmakeTarget* FindTarget(const std::vector<CmakeTarget>& targets,
 
 int CmakeScanner::BuildAll() {
   // Create build directory
-  if (!dryRun_) if (!buildutil::MkdirP("build")) {
+  if (!dry_run_) if (!buildutil::MkdirP("build")) {
     fprintf(stderr, "gor_make: *** Failed to create build directory.\n");
     return 1;
   }
@@ -654,17 +654,17 @@ bool CmakeScanner::BuildTarget(const CmakeTarget& target) {
   }
 
   // Create object directory for this target
-  std::string objDir = "build/obj/" + target.name;
-  if (!dryRun_) if (!buildutil::MkdirP(objDir)) {
+  std::string obj_dir = "build/obj/" + target.name;
+  if (!dry_run_) if (!buildutil::MkdirP(obj_dir)) {
     fprintf(stderr, "gor_make: *** Failed to create obj directory: %s\n",
-            objDir.c_str());
+            obj_dir.c_str());
     return false;
   }
 
   // Compile all source files
   for (const auto& src : target.srcs) {
-    std::string objFile = GetObjectPath(target, src);
-    if (!CompileSource(target, src, objFile)) {
+    std::string obj_file = GetObjectPath(target, src);
+    if (!CompileSource(target, src, obj_file)) {
       return false;
     }
   }
@@ -681,34 +681,34 @@ bool CmakeScanner::BuildTarget(const CmakeTarget& target) {
 
 bool CmakeScanner::CompileSource(const CmakeTarget& target,
                                   const std::string& src,
-                                  const std::string& objFile) {
+                                  const std::string& obj_file) {
   // Resolve source path relative to target's source directory
-  std::string srcPath = src;
-  if (!srcPath.empty() && srcPath[0] != '/') {
-    srcPath = target.srcDir + "/" + src;
+  std::string src_path = src;
+  if (!src_path.empty() && src_path[0] != '/') {
+    src_path = target.src_dir + "/" + src;
   }
 
-  if (!buildutil::FileExists(srcPath)) {
+  if (!buildutil::FileExists(src_path)) {
     fprintf(stderr, "gor_make: *** Source file not found: %s\n",
-            srcPath.c_str());
+            src_path.c_str());
     return false;
   }
 
   // Ensure obj directory exists
-  std::string objDir = buildutil::DirName(objFile);
-  if (!dryRun_) if (!buildutil::MkdirP(objDir)) {
+  std::string obj_dir = buildutil::DirName(obj_file);
+  if (!dry_run_) if (!buildutil::MkdirP(obj_dir)) {
     fprintf(stderr, "gor_make: *** Failed to create directory: %s\n",
-            objDir.c_str());
+            obj_dir.c_str());
     return false;
   }
 
   // Check if recompilation is needed
-  if (!NeedsRecompile(objFile, srcPath)) {
+  if (!NeedsRecompile(obj_file, src_path)) {
     return true;  // Up to date
   }
 
   // Choose compiler based on file extension
-  std::string compiler = buildutil::GetCompiler(srcPath);
+  std::string compiler = buildutil::GetCompiler(src_path);
 
   // Build compilation command
   std::string cmd = compiler + " -MMD -MP -c";
@@ -719,18 +719,18 @@ bool CmakeScanner::CompileSource(const CmakeTarget& target,
   }
 
   // Add compile options
-  for (const auto& opt : target.compileOptions) {
+  for (const auto& opt : target.compile_options) {
     cmd += " " + opt;
   }
 
   // Add include directories
-  for (const auto& dir : target.includeDirs) {
+  for (const auto& dir : target.include_dirs) {
     // Resolve relative to source directory
-    std::string incDir = dir;
-    if (!incDir.empty() && incDir[0] != '/') {
-      incDir = target.srcDir + "/" + incDir;
+    std::string inc_dir = dir;
+    if (!inc_dir.empty() && inc_dir[0] != '/') {
+      inc_dir = target.src_dir + "/" + inc_dir;
     }
-    cmd += " -I" + incDir;
+    cmd += " -I" + inc_dir;
   }
 
   // Add defines
@@ -739,7 +739,7 @@ bool CmakeScanner::CompileSource(const CmakeTarget& target,
   }
 
   // Add source and output
-  cmd += " -o " + objFile + " " + srcPath;
+  cmd += " -o " + obj_file + " " + src_path;
 
   // Print and execute
   printf("%s\n", cmd.c_str());
@@ -747,7 +747,7 @@ bool CmakeScanner::CompileSource(const CmakeTarget& target,
 
   if (!ExecuteCmd(cmd)) {
     fprintf(stderr, "gor_make: *** Compilation failed for %s\n",
-            srcPath.c_str());
+            src_path.c_str());
     return false;
   }
 
@@ -755,13 +755,13 @@ bool CmakeScanner::CompileSource(const CmakeTarget& target,
 }
 
 bool CmakeScanner::LinkTarget(const CmakeTarget& target) {
-  std::string outPath = GetOutputPath(target);
+  std::string out_path = GetOutputPath(target);
 
   // Ensure output directory exists
-  std::string outDir = buildutil::DirName(outPath);
-  if (!dryRun_) if (!buildutil::MkdirP(outDir)) {
+  std::string out_dir = buildutil::DirName(out_path);
+  if (!dry_run_) if (!buildutil::MkdirP(out_dir)) {
     fprintf(stderr, "gor_make: *** Failed to create output directory: %s\n",
-            outDir.c_str());
+            out_dir.c_str());
     return false;
   }
 
@@ -769,13 +769,13 @@ bool CmakeScanner::LinkTarget(const CmakeTarget& target) {
 
   if (target.type == "static_library") {
     // Create static library with ar
-    cmd = "ar rcs " + outPath;
+    cmd = "ar rcs " + out_path;
     for (const auto& src : target.srcs) {
       cmd += " " + GetObjectPath(target, src);
     }
   } else if (target.type == "shared_library") {
     // Link shared library
-    cmd = "g++ -shared -o " + outPath;
+    cmd = "g++ -shared -o " + out_path;
 
     // Add ldflags
     for (const auto& f : target.ldflags) {
@@ -788,11 +788,11 @@ bool CmakeScanner::LinkTarget(const CmakeTarget& target) {
     }
 
     // Add link libraries
-    for (const auto& lib : target.linkLibs) {
-      const CmakeTarget* depTarget = FindTarget(targets_, lib);
-      if (depTarget) {
+    for (const auto& lib : target.link_libs) {
+      const CmakeTarget* dep_target = FindTarget(targets_, lib);
+      if (dep_target) {
         // Local target — add its output path
-        cmd += " " + GetOutputPath(*depTarget);
+        cmd += " " + GetOutputPath(*dep_target);
       } else {
         // System library — add as -l flag
         cmd += " -l" + lib;
@@ -800,7 +800,7 @@ bool CmakeScanner::LinkTarget(const CmakeTarget& target) {
     }
   } else {
     // Executable (default)
-    cmd = "g++ -o " + outPath;
+    cmd = "g++ -o " + out_path;
 
     // Add ldflags
     for (const auto& f : target.ldflags) {
@@ -813,11 +813,11 @@ bool CmakeScanner::LinkTarget(const CmakeTarget& target) {
     }
 
     // Add link libraries
-    for (const auto& lib : target.linkLibs) {
-      const CmakeTarget* depTarget = FindTarget(targets_, lib);
-      if (depTarget) {
+    for (const auto& lib : target.link_libs) {
+      const CmakeTarget* dep_target = FindTarget(targets_, lib);
+      if (dep_target) {
         // Local target — add its output path
-        cmd += " " + GetOutputPath(*depTarget);
+        cmd += " " + GetOutputPath(*dep_target);
       } else {
         // System library — add as -l flag
         cmd += " -l" + lib;
@@ -830,7 +830,7 @@ bool CmakeScanner::LinkTarget(const CmakeTarget& target) {
   fflush(stdout);
 
   if (!ExecuteCmd(cmd)) {
-    fprintf(stderr, "gor_make: *** Linking failed for %s\n", outPath.c_str());
+    fprintf(stderr, "gor_make: *** Linking failed for %s\n", out_path.c_str());
     return false;
   }
 
@@ -850,18 +850,18 @@ std::string CmakeScanner::GetOutputPath(const CmakeTarget& target) const {
 
 std::string CmakeScanner::GetObjectPath(const CmakeTarget& target,
                                          const std::string& src) const {
-  std::string baseName = buildutil::BaseName(src);
-  return "build/obj/" + target.name + "/" + ReplaceExt(baseName, ".o");
+  std::string base_name = buildutil::BaseName(src);
+  return "build/obj/" + target.name + "/" + ReplaceExt(base_name, ".o");
 }
 
 bool CmakeScanner::ExecuteCmd(const std::string& cmd) {
-  if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
+  if (dry_run_) { std::printf("  %s\n", cmd.c_str()); return true; }
   return buildutil::ExecuteCmd(cmd);
 }
 
-bool CmakeScanner::NeedsRecompile(const std::string& objFile,
-                                   const std::string& srcFile) const {
-  return buildutil::NeedsRecompile(objFile, srcFile);
+bool CmakeScanner::NeedsRecompile(const std::string& obj_file,
+                                   const std::string& src_file) const {
+  return buildutil::NeedsRecompile(obj_file, src_file);
 }
 
 }  // namespace gormake

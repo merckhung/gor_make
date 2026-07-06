@@ -22,7 +22,7 @@
 #include <string>
 #include "token.h"
 #include "line.h"
-#include "RdFile.h"
+#include "rd_file.h"
 #include "macros.h"
 
 namespace gormake {
@@ -66,7 +66,7 @@ class Lexer {
 
   typedef struct {
     const int8_t        *str;
-    const size_t        strLen;
+    const size_t        str_len;
     const Token::TokTyp tok;
   } KeyPhraseToTok;
 
@@ -82,8 +82,8 @@ class Lexer {
   std::unique_ptr<UnixFile::RdFile> file_;
   Token tok_;
   Line ln_;
-  char strBuf_[SZ_BUF];
-  char lnBuf_[LN_BUF];
+  char str_buf_[SZ_BUF];
+  char ln_buf_[LN_BUF];
 
   DISALLOW_COPY_AND_ASSIGN(Lexer);
 };

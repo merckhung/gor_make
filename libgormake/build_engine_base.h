@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef GORMAKE_LIBGORMAKE_BUILDENGINEBASE_H_
-#define GORMAKE_LIBGORMAKE_BUILDENGINEBASE_H_
+#ifndef GORMAKE_LIBGORMAKE_BUILD_ENGINE_BASE_H_
+#define GORMAKE_LIBGORMAKE_BUILD_ENGINE_BASE_H_
 
 #include <cstdint>
 #include <cstdio>
@@ -48,10 +48,10 @@ bool IsCSource(const std::string& src);
 
 // Check if an object file needs recompilation (mtime-based).
 // Also checks .d dependency file for header changes.
-bool NeedsRecompile(const std::string& objFile, const std::string& srcFile);
+bool NeedsRecompile(const std::string& obj_file, const std::string& src_file);
 
 // Check if any header listed in a .d dependency file is newer than the .o.
-bool CheckDepFile(const std::string& objFile);
+bool CheckDepFile(const std::string& obj_file);
 
 // Execute a shell command, printing it first. Returns true on success.
 bool ExecuteCmd(const std::string& cmd);
@@ -63,4 +63,4 @@ std::string GetCompiler(const std::string& src);
 
 }  // namespace gormake
 
-#endif  // GORMAKE_LIBGORMAKE_BUILDENGINEBASE_H_
+#endif  // GORMAKE_LIBGORMAKE_BUILD_ENGINE_BASE_H_

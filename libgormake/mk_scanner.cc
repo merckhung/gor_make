@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#include "mkscanner.h"
-#include "buildenginebase.h"
+#include "mk_scanner.h"
+#include "build_engine_base.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -89,7 +89,7 @@ bool MkScanner::ScanFile(const std::string& path) {
   }
 
   current_.path = path;
-  current_.srcDir = buildutil::DirName(path);
+  current_.src_dir = buildutil::DirName(path);
   variables_["LOCAL_PATH"] = "";  // Will be set by $(call my-dir) expansion
 
   std::string line;
@@ -100,22 +100,22 @@ bool MkScanner::ScanFile(const std::string& path) {
   return true;
 }
 
-void MkScanner::ScanDirectory(const std::string& dirPath) {
-  for (auto& entry : fs::recursive_directory_iterator(dirPath)) {
+void MkScanner::ScanDirectory(const std::string& dir_path) {
+  for (auto& entry : fs::recursive_directory_iterator(dir_path)) {
     if (entry.path().filename() == "Android.mk") {
-      std::string entryStr = entry.path().string();
+      std::string entry_str = entry.path().string();
       // Skip common output/build directories
-      if (entryStr.find("/out/") != std::string::npos) continue;
-      if (entryStr.find("/bazel-") != std::string::npos) continue;
-      if (entryStr.find("/.git/") != std::string::npos) continue;
+      if (entry_str.find("/out/") != std::string::npos) continue;
+      if (entry_str.find("/bazel-") != std::string::npos) continue;
+      if (entry_str.find("/.git/") != std::string::npos) continue;
       try {
-        ScanFile(entryStr);
+        ScanFile(entry_str);
       } catch (const std::exception& e) {
         std::fprintf(stderr, "gor_make: [warning] error parsing %s: %s\n",
-                     entryStr.c_str(), e.what());
+                     entry_str.c_str(), e.what());
       } catch (...) {
         std::fprintf(stderr, "gor_make: [warning] unknown error parsing %s\n",
-                     entryStr.c_str());
+                     entry_str.c_str());
       }
     }
   }
@@ -127,13 +127,13 @@ const std::vector<MkModule>& MkScanner::GetModules() const {
 
 std::string MkScanner::StripComment(const std::string& line) const {
   std::string result;
-  bool inString = false;
+  bool in_string = false;
   for (size_t i = 0; i < line.size(); ++i) {
     char c = line[i];
     if (c == '"' && (i == 0 || line[i-1] != '\\')) {
-      inString = !inString;
+      in_string = !in_string;
     }
-    if (c == '#' && !inString) {
+    if (c == '#' && !in_string) {
       break;
     }
     result += c;
@@ -165,14 +165,14 @@ std::string MkScanner::ExpandVars(const std::string& s) const {
       if (s[i+1] == '(') {
         size_t close = s.find(')', i + 2);
         if (close != std::string::npos) {
-          std::string varName = s.substr(i + 2, close - i - 2);
+          std::string var_name = s.substr(i + 2, close - i - 2);
           // Handle $(call my-dir) -> return the directory
-          if (StartsWith(varName, "call my-dir")) {
-            result += current_.srcDir;
-          } else if (StartsWith(varName, "LOCAL_PATH")) {
-            result += current_.srcDir;
+          if (StartsWith(var_name, "call my-dir")) {
+            result += current_.src_dir;
+          } else if (StartsWith(var_name, "LOCAL_PATH")) {
+            result += current_.src_dir;
           } else {
-            auto it = variables_.find(varName);
+            auto it = variables_.find(var_name);
             if (it != variables_.end()) {
               result += it->second;
             }
@@ -195,16 +195,16 @@ std::string MkScanner::ExpandVars(const std::string& s) const {
 bool MkScanner::ParseAssignment(const std::string& line, std::string* name,
                                  std::string* value, char* op) {
   // Find the operator
-  size_t opPos = std::string::npos;
+  size_t op_pos = std::string::npos;
   *op = '=';
 
   for (size_t i = 0; i < line.size(); ++i) {
     if (line[i] == '=') {
       if (i > 0 && (line[i-1] == ':' || line[i-1] == '?' || line[i-1] == '+')) {
-        opPos = i - 1;
+        op_pos = i - 1;
         *op = line[i-1];
       } else {
-        opPos = i;
+        op_pos = i;
         *op = '=';
       }
       break;
@@ -214,12 +214,12 @@ bool MkScanner::ParseAssignment(const std::string& line, std::string* name,
     }
   }
 
-  if (opPos == std::string::npos) return false;
+  if (op_pos == std::string::npos) return false;
 
-  *name = Trim(line.substr(0, opPos));
-  size_t valStart = opPos + 1;
-  if (*op != '=') valStart = opPos + 2;  // Skip the operator char and =
-  *value = Trim(line.substr(valStart));
+  *name = Trim(line.substr(0, op_pos));
+  size_t val_start = op_pos + 1;
+  if (*op != '=') val_start = op_pos + 2;  // Skip the operator char and =
+  *value = Trim(line.substr(val_start));
 
   return true;
 }
@@ -228,31 +228,31 @@ void MkScanner::ProcessConditional(const std::string& line) {
   std::string trimmed = Trim(line);
 
   if (StartsWith(trimmed, "ifdef ") || StartsWith(trimmed, "ifndef ")) {
-    bool isIfndef = StartsWith(trimmed, "ifndef ");
-    std::string varName = Trim(trimmed.substr(6));
-    bool defined = variables_.count(varName) > 0 &&
-                   !variables_[varName].empty();
+    bool is_ifndef = StartsWith(trimmed, "ifndef ");
+    std::string var_name = Trim(trimmed.substr(6));
+    bool defined = variables_.count(var_name) > 0 &&
+                   !variables_[var_name].empty();
     // Also check environment
     if (!defined) {
-      const char* env = getenv(varName.c_str());
+      const char* env = getenv(var_name.c_str());
       if (env) defined = true;
     }
-    bool result = isIfndef ? !defined : defined;
-    condStack_.push_back(result);
+    bool result = is_ifndef ? !defined : defined;
+    cond_stack_.push_back(result);
   } else if (StartsWith(trimmed, "ifeq ") || StartsWith(trimmed, "ifneq ")) {
     // Simplified: just push true (we can't fully evaluate)
-    condStack_.push_back(true);
+    cond_stack_.push_back(true);
   } else if (trimmed == "else") {
-    if (!condStack_.empty()) {
-      condStack_.back() = !condStack_.back();
+    if (!cond_stack_.empty()) {
+      cond_stack_.back() = !cond_stack_.back();
     }
   } else if (trimmed == "endif") {
-    if (!condStack_.empty()) condStack_.pop_back();
+    if (!cond_stack_.empty()) cond_stack_.pop_back();
   }
 
   // Recompute active_
   active_ = true;
-  for (bool v : condStack_) {
+  for (bool v : cond_stack_) {
     if (!v) { active_ = false; break; }
   }
 }
@@ -269,7 +269,7 @@ static std::string NormalizeBuildType(const std::string& raw) {
   }
 
   // Step 2: Check against known build types (all map to themselves)
-  static const std::vector<std::string> knownTypes = {
+  static const std::vector<std::string> known_types = {
       "BUILD_EXECUTABLE",
       "BUILD_HOST_EXECUTABLE",
       "BUILD_STATIC_LIBRARY",
@@ -280,7 +280,7 @@ static std::string NormalizeBuildType(const std::string& raw) {
       "BUILD_NATIVE_TEST",
       "BUILD_HOST_DALVIK_JAVA_LIBRARY",
   };
-  for (const auto& known : knownTypes) {
+  for (const auto& known : known_types) {
     if (name == known) return known;
   }
 
@@ -293,11 +293,11 @@ static std::string NormalizeBuildType(const std::string& raw) {
   return name;
 }
 
-void MkScanner::FlushModule(const std::string& buildType) {
-  if (!inModule_) return;
+void MkScanner::FlushModule(const std::string& build_type) {
+  if (!in_module_) return;
 
   // Normalize the build type: strip $(...) and map to canonical name
-  current_.buildType = NormalizeBuildType(buildType);
+  current_.build_type = NormalizeBuildType(build_type);
   if (!current_.name.empty()) {
     modules_.push_back(current_);
   }
@@ -305,13 +305,13 @@ void MkScanner::FlushModule(const std::string& buildType) {
   // Reset current module
   current_ = MkModule();
   current_.path = current_.path;  // Keep path
-  current_.srcDir = current_.srcDir;
-  inModule_ = false;
+  current_.src_dir = current_.src_dir;
+  in_module_ = false;
 }
 
-void MkScanner::ProcessLine(const std::string& rawLine) {
+void MkScanner::ProcessLine(const std::string& raw_line) {
   // Strip comments
-  std::string line = StripComment(rawLine);
+  std::string line = StripComment(raw_line);
   std::string trimmed = Trim(line);
 
   if (trimmed.empty()) return;
@@ -332,17 +332,17 @@ void MkScanner::ProcessLine(const std::string& rawLine) {
 
   // Handle include directives
   if (StartsWith(trimmed, "include ") || StartsWith(trimmed, "include\t")) {
-    std::string includeTarget = Trim(trimmed.substr(8));
+    std::string include_target = Trim(trimmed.substr(8));
 
     // Check for CLEAR_VARS before expansion
-    if (includeTarget.find("CLEAR_VARS") != std::string::npos) {
-      // Start a new module, preserving path/srcDir
-      std::string savedPath = current_.path;
-      std::string savedSrcDir = current_.srcDir;
+    if (include_target.find("CLEAR_VARS") != std::string::npos) {
+      // Start a new module, preserving path/src_dir
+      std::string saved_path = current_.path;
+      std::string saved_src_dir = current_.src_dir;
       current_ = MkModule();
-      current_.path = savedPath;
-      current_.srcDir = savedSrcDir;
-      inModule_ = true;
+      current_.path = saved_path;
+      current_.src_dir = saved_src_dir;
+      in_module_ = true;
       return;
     }
 
@@ -350,42 +350,42 @@ void MkScanner::ProcessLine(const std::string& rawLine) {
     // Check BUILD_HOST_* first — host build type names contain their non-host
     // counterparts as substrings (e.g. BUILD_HOST_EXECUTABLE contains
     // BUILD_EXECUTABLE), so they must be checked before the non-host types.
-    if (includeTarget.find("BUILD_HOST_") != std::string::npos) {
-      FlushModule(includeTarget);
+    if (include_target.find("BUILD_HOST_") != std::string::npos) {
+      FlushModule(include_target);
       return;
     }
-    if (includeTarget.find("BUILD_STATIC_LIBRARY") != std::string::npos) {
-      FlushModule(includeTarget);
+    if (include_target.find("BUILD_STATIC_LIBRARY") != std::string::npos) {
+      FlushModule(include_target);
       return;
     }
-    if (includeTarget.find("BUILD_SHARED_LIBRARY") != std::string::npos) {
-      FlushModule(includeTarget);
+    if (include_target.find("BUILD_SHARED_LIBRARY") != std::string::npos) {
+      FlushModule(include_target);
       return;
     }
-    if (includeTarget.find("BUILD_EXECUTABLE") != std::string::npos) {
-      FlushModule(includeTarget);
+    if (include_target.find("BUILD_EXECUTABLE") != std::string::npos) {
+      FlushModule(include_target);
       return;
     }
-    if (includeTarget.find("BUILD_NATIVE_TEST") != std::string::npos) {
-      FlushModule(includeTarget);
+    if (include_target.find("BUILD_NATIVE_TEST") != std::string::npos) {
+      FlushModule(include_target);
       return;
     }
 
     // Expand variables for other includes
-    includeTarget = ExpandVars(includeTarget);
+    include_target = ExpandVars(include_target);
 
     // Try to read the file
-    if (buildutil::FileExists(includeTarget)) {
+    if (buildutil::FileExists(include_target)) {
       // Recursively scan included file
-      auto savedVars = variables_;
-      auto savedCurrent = current_;
-      bool savedInModule = inModule_;
+      auto saved_vars = variables_;
+      auto saved_current = current_;
+      bool saved_in_module = in_module_;
 
-      ScanFile(includeTarget);
+      ScanFile(include_target);
 
-      variables_ = savedVars;
-      current_ = savedCurrent;
-      inModule_ = savedInModule;
+      variables_ = saved_vars;
+      current_ = saved_current;
+      in_module_ = saved_in_module;
     }
     return;
   }
@@ -397,92 +397,92 @@ void MkScanner::ProcessLine(const std::string& rawLine) {
   }
 
   // Parse variable assignments
-  std::string varName, varValue;
+  std::string var_name, var_value;
   char op;
-  if (ParseAssignment(trimmed, &varName, &varValue, &op)) {
+  if (ParseAssignment(trimmed, &var_name, &var_value, &op)) {
     // Expand variables in value
-    varValue = ExpandVars(varValue);
+    var_value = ExpandVars(var_value);
 
     // Handle LOCAL_* variables when inside a module
-    if (inModule_ && StartsWith(varName, "LOCAL_")) {
-      if (varName == "LOCAL_MODULE") {
-        current_.name = varValue;
-      } else if (varName == "LOCAL_SRC_FILES") {
-        auto srcs = SplitList(varValue);
+    if (in_module_ && StartsWith(var_name, "LOCAL_")) {
+      if (var_name == "LOCAL_MODULE") {
+        current_.name = var_value;
+      } else if (var_name == "LOCAL_SRC_FILES") {
+        auto srcs = SplitList(var_value);
         if (op == '+') {
           current_.srcs.insert(current_.srcs.end(), srcs.begin(), srcs.end());
         } else {
           current_.srcs = srcs;
         }
-      } else if (varName == "LOCAL_CFLAGS") {
-        auto flags = SplitList(varValue);
+      } else if (var_name == "LOCAL_CFLAGS") {
+        auto flags = SplitList(var_value);
         if (op == '+') {
           current_.cflags.insert(current_.cflags.end(), flags.begin(), flags.end());
         } else {
           current_.cflags = flags;
         }
-      } else if (varName == "LOCAL_CPPFLAGS") {
-        auto flags = SplitList(varValue);
+      } else if (var_name == "LOCAL_CPPFLAGS") {
+        auto flags = SplitList(var_value);
         if (op == '+') {
           current_.cppflags.insert(current_.cppflags.end(), flags.begin(), flags.end());
         } else {
           current_.cppflags = flags;
         }
-      } else if (varName == "LOCAL_LDFLAGS") {
-        auto flags = SplitList(varValue);
+      } else if (var_name == "LOCAL_LDFLAGS") {
+        auto flags = SplitList(var_value);
         if (op == '+') {
           current_.ldflags.insert(current_.ldflags.end(), flags.begin(), flags.end());
         } else {
           current_.ldflags = flags;
         }
-      } else if (varName == "LOCAL_SHARED_LIBRARIES") {
-        auto libs = SplitList(varValue);
+      } else if (var_name == "LOCAL_SHARED_LIBRARIES") {
+        auto libs = SplitList(var_value);
         if (op == '+') {
-          current_.sharedLibs.insert(current_.sharedLibs.end(), libs.begin(), libs.end());
+          current_.shared_libs.insert(current_.shared_libs.end(), libs.begin(), libs.end());
         } else {
-          current_.sharedLibs = libs;
+          current_.shared_libs = libs;
         }
-      } else if (varName == "LOCAL_STATIC_LIBRARIES") {
-        auto libs = SplitList(varValue);
+      } else if (var_name == "LOCAL_STATIC_LIBRARIES") {
+        auto libs = SplitList(var_value);
         if (op == '+') {
-          current_.staticLibs.insert(current_.staticLibs.end(), libs.begin(), libs.end());
+          current_.static_libs.insert(current_.static_libs.end(), libs.begin(), libs.end());
         } else {
-          current_.staticLibs = libs;
+          current_.static_libs = libs;
         }
-      } else if (varName == "LOCAL_WHOLE_STATIC_LIBRARIES") {
-        auto libs = SplitList(varValue);
+      } else if (var_name == "LOCAL_WHOLE_STATIC_LIBRARIES") {
+        auto libs = SplitList(var_value);
         if (op == '+') {
-          current_.wholeStaticLibs.insert(current_.wholeStaticLibs.end(), libs.begin(), libs.end());
+          current_.whole_static_libs.insert(current_.whole_static_libs.end(), libs.begin(), libs.end());
         } else {
-          current_.wholeStaticLibs = libs;
+          current_.whole_static_libs = libs;
         }
-      } else if (varName == "LOCAL_C_INCLUDES") {
-        auto dirs = SplitList(varValue);
+      } else if (var_name == "LOCAL_C_INCLUDES") {
+        auto dirs = SplitList(var_value);
         if (op == '+') {
-          current_.includeDirs.insert(current_.includeDirs.end(), dirs.begin(), dirs.end());
+          current_.include_dirs.insert(current_.include_dirs.end(), dirs.begin(), dirs.end());
         } else {
-          current_.includeDirs = dirs;
+          current_.include_dirs = dirs;
         }
-      } else if (varName == "LOCAL_EXPORT_C_INCLUDE_DIRS") {
-        auto dirs = SplitList(varValue);
+      } else if (var_name == "LOCAL_EXPORT_C_INCLUDE_DIRS") {
+        auto dirs = SplitList(var_value);
         if (op == '+') {
-          current_.exportIncludeDirs.insert(current_.exportIncludeDirs.end(), dirs.begin(), dirs.end());
+          current_.export_include_dirs.insert(current_.export_include_dirs.end(), dirs.begin(), dirs.end());
         } else {
-          current_.exportIncludeDirs = dirs;
+          current_.export_include_dirs = dirs;
         }
       }
       // Also store in variables_ for expansion
-      variables_[varName] = varValue;
+      variables_[var_name] = var_value;
     } else {
       // Regular variable assignment
       if (op == '+') {
-        variables_[varName] += " " + varValue;
+        variables_[var_name] += " " + var_value;
       } else if (op == '?') {
-        if (variables_.count(varName) == 0) {
-          variables_[varName] = varValue;
+        if (variables_.count(var_name) == 0) {
+          variables_[var_name] = var_value;
         }
       } else {
-        variables_[varName] = varValue;
+        variables_[var_name] = var_value;
       }
     }
     return;
@@ -507,18 +507,18 @@ void MkScanner::OutputJson() const {
     first = false;
 
     // Determine module type string
-    std::string typeStr = "unknown";
-    if (mod.buildType == "BUILD_STATIC_LIBRARY") typeStr = "cc_library_static";
-    else if (mod.buildType == "BUILD_SHARED_LIBRARY") typeStr = "cc_library_shared";
-    else if (mod.buildType == "BUILD_EXECUTABLE") typeStr = "cc_binary";
-    else if (mod.buildType == "BUILD_NATIVE_TEST") typeStr = "cc_test";
-    else typeStr = mod.buildType;
+    std::string type_str = "unknown";
+    if (mod.build_type == "BUILD_STATIC_LIBRARY") type_str = "cc_library_static";
+    else if (mod.build_type == "BUILD_SHARED_LIBRARY") type_str = "cc_library_shared";
+    else if (mod.build_type == "BUILD_EXECUTABLE") type_str = "cc_binary";
+    else if (mod.build_type == "BUILD_NATIVE_TEST") type_str = "cc_test";
+    else type_str = mod.build_type;
 
     printf("    {\n");
     printf("      \"name\": \"%s\",\n", JsonEscape(mod.name).c_str());
-    printf("      \"type\": \"%s\",\n", JsonEscape(typeStr).c_str());
-    printf("      \"build_type\": \"%s\",\n", JsonEscape(mod.buildType).c_str());
-    printf("      \"src_dir\": \"%s\",\n", JsonEscape(mod.srcDir).c_str());
+    printf("      \"type\": \"%s\",\n", JsonEscape(type_str).c_str());
+    printf("      \"build_type\": \"%s\",\n", JsonEscape(mod.build_type).c_str());
+    printf("      \"src_dir\": \"%s\",\n", JsonEscape(mod.src_dir).c_str());
     printf("      \"path\": \"%s\",\n", JsonEscape(mod.path).c_str());
 
     printf("      \"srcs\": ");
@@ -526,15 +526,15 @@ void MkScanner::OutputJson() const {
     printf(",\n");
 
     printf("      \"shared_libs\": ");
-    OutputJsonArray(mod.sharedLibs);
+    OutputJsonArray(mod.shared_libs);
     printf(",\n");
 
     printf("      \"static_libs\": ");
-    OutputJsonArray(mod.staticLibs);
+    OutputJsonArray(mod.static_libs);
     printf(",\n");
 
     printf("      \"whole_static_libs\": ");
-    OutputJsonArray(mod.wholeStaticLibs);
+    OutputJsonArray(mod.whole_static_libs);
     printf(",\n");
 
     printf("      \"cflags\": ");
@@ -550,11 +550,11 @@ void MkScanner::OutputJson() const {
     printf(",\n");
 
     printf("      \"include_dirs\": ");
-    OutputJsonArray(mod.includeDirs);
+    OutputJsonArray(mod.include_dirs);
     printf(",\n");
 
     printf("      \"export_include_dirs\": ");
-    OutputJsonArray(mod.exportIncludeDirs);
+    OutputJsonArray(mod.export_include_dirs);
     printf("\n");
 
     printf("    }");
@@ -577,43 +577,43 @@ void MkScanner::OutputJson() const {
 namespace gormake {
 
 std::string MkScanner::GetOutputPath(const MkModule& module) const {
-  std::string dir = module.srcDir.empty() ? "." : module.srcDir;
+  std::string dir = module.src_dir.empty() ? "." : module.src_dir;
   return dir + "/build/" + module.name;
 }
 
 std::string MkScanner::GetObjectPath(const MkModule& module,
                                       const std::string& src) const {
-  std::string dir = module.srcDir.empty() ? "." : module.srcDir;
+  std::string dir = module.src_dir.empty() ? "." : module.src_dir;
   return dir + "/build/obj/" + module.name + "/" + buildutil::BaseName(src) + ".o";
 }
 
-bool MkScanner::NeedsRecompile(const std::string& objFile,
-                                const std::string& srcFile) const {
-  return buildutil::NeedsRecompile(objFile, srcFile);
+bool MkScanner::NeedsRecompile(const std::string& obj_file,
+                                const std::string& src_file) const {
+  return buildutil::NeedsRecompile(obj_file, src_file);
 }
 
 bool MkScanner::ExecuteCmd(const std::string& cmd) {
-  if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
+  if (dry_run_) { std::printf("  %s\n", cmd.c_str()); return true; }
   return buildutil::ExecuteCmd(cmd);
 }
 
 bool MkScanner::CompileSource(const MkModule& module, const std::string& src,
-                               const std::string& objFile) {
-  if (!NeedsRecompile(objFile, src)) {
+                               const std::string& obj_file) {
+  if (!NeedsRecompile(obj_file, src)) {
     std::printf("  [skip] %s (up-to-date)\n", src.c_str());
     return true;
   }
 
-  // Resolve source path relative to srcDir
-  std::string srcPath = src;
-  if (srcPath[0] != '/') {
-    std::string dir = module.srcDir.empty() ? "." : module.srcDir;
-    srcPath = dir + "/" + srcPath;
+  // Resolve source path relative to src_dir
+  std::string src_path = src;
+  if (src_path[0] != '/') {
+    std::string dir = module.src_dir.empty() ? "." : module.src_dir;
+    src_path = dir + "/" + src_path;
   }
 
   std::string compiler = buildutil::GetCompiler(src);
 
-  std::string cmd = compiler + " -MMD -MP -c -o " + objFile + " " + srcPath;
+  std::string cmd = compiler + " -MMD -MP -c -o " + obj_file + " " + src_path;
 
   // Add cflags
   for (const auto& flag : module.cflags) {
@@ -624,20 +624,20 @@ bool MkScanner::CompileSource(const MkModule& module, const std::string& src,
     cmd += " " + flag;
   }
   // Add include dirs
-  for (const auto& inc : module.includeDirs) {
+  for (const auto& inc : module.include_dirs) {
     if (inc[0] == '/') {
       cmd += " -I" + inc;
     } else {
-      std::string dir = module.srcDir.empty() ? "." : module.srcDir;
+      std::string dir = module.src_dir.empty() ? "." : module.src_dir;
       cmd += " -I" + dir + "/" + inc;
     }
   }
   // Add export include dirs
-  for (const auto& inc : module.exportIncludeDirs) {
+  for (const auto& inc : module.export_include_dirs) {
     if (inc[0] == '/') {
       cmd += " -I" + inc;
     } else {
-      std::string dir = module.srcDir.empty() ? "." : module.srcDir;
+      std::string dir = module.src_dir.empty() ? "." : module.src_dir;
       cmd += " -I" + dir + "/" + inc;
     }
   }
@@ -645,69 +645,69 @@ bool MkScanner::CompileSource(const MkModule& module, const std::string& src,
   cmd += " -Wall";
 
   // Create output directory
-  std::string objDir = objFile.substr(0, objFile.find_last_of('/'));
-  if (!dryRun_) buildutil::MkdirP(objDir);
+  std::string obj_dir = obj_file.substr(0, obj_file.find_last_of('/'));
+  if (!dry_run_) buildutil::MkdirP(obj_dir);
 
   return ExecuteCmd(cmd);
 }
 
 bool MkScanner::LinkModule(const MkModule& module) {
-  std::string outputPath = GetOutputPath(module);
-  std::string dir = module.srcDir.empty() ? "." : module.srcDir;
-  std::string outputDir = dir + "/build";
-  if (!dryRun_) buildutil::MkdirP(outputDir);
+  std::string output_path = GetOutputPath(module);
+  std::string dir = module.src_dir.empty() ? "." : module.src_dir;
+  std::string output_dir = dir + "/build";
+  if (!dry_run_) buildutil::MkdirP(output_dir);
 
   // Collect all object files
-  std::string objFiles;
+  std::string obj_files;
   for (const auto& src : module.srcs) {
-    std::string objPath = GetObjectPath(module, src);
-    objFiles += " " + objPath;
+    std::string obj_path = GetObjectPath(module, src);
+    obj_files += " " + obj_path;
   }
 
-  if (module.buildType == "BUILD_STATIC_LIBRARY") {
-    std::string cmd = "ar rcs " + outputPath + ".a" + objFiles;
+  if (module.build_type == "BUILD_STATIC_LIBRARY") {
+    std::string cmd = "ar rcs " + output_path + ".a" + obj_files;
     return ExecuteCmd(cmd);
   }
 
-  if (module.buildType == "BUILD_SHARED_LIBRARY") {
-    std::string cmd = "g++ -shared -o " + outputPath + ".so" + objFiles;
+  if (module.build_type == "BUILD_SHARED_LIBRARY") {
+    std::string cmd = "g++ -shared -o " + output_path + ".so" + obj_files;
     for (const auto& flag : module.ldflags) cmd += " " + flag;
     // Link shared libs
-    for (const auto& lib : module.sharedLibs) {
-      std::string libName = lib;
-      if (libName.substr(0, 3) == "lib") libName = libName.substr(3);
-      cmd += " -l" + libName;
+    for (const auto& lib : module.shared_libs) {
+      std::string lib_name = lib;
+      if (lib_name.substr(0, 3) == "lib") lib_name = lib_name.substr(3);
+      cmd += " -l" + lib_name;
     }
     return ExecuteCmd(cmd);
   }
 
-  if (module.buildType == "BUILD_EXECUTABLE") {
-    std::string cmd = "g++ -o " + outputPath + objFiles;
+  if (module.build_type == "BUILD_EXECUTABLE") {
+    std::string cmd = "g++ -o " + output_path + obj_files;
     for (const auto& flag : module.ldflags) cmd += " " + flag;
 
     // Link shared libs
-    for (const auto& lib : module.sharedLibs) {
-      std::string libName = lib;
-      if (libName.substr(0, 3) == "lib") libName = libName.substr(3);
-      cmd += " -l" + libName;
+    for (const auto& lib : module.shared_libs) {
+      std::string lib_name = lib;
+      if (lib_name.substr(0, 3) == "lib") lib_name = lib_name.substr(3);
+      cmd += " -l" + lib_name;
     }
     // Link static libs — use the .a file directly from the build output
-    for (const auto& lib : module.staticLibs) {
+    for (const auto& lib : module.static_libs) {
       // Find the built static library
-      std::string libPath;
+      std::string lib_path;
       for (const auto& m : modules_) {
-        if (m.name == lib && m.buildType == "BUILD_STATIC_LIBRARY") {
-          libPath = GetOutputPath(m) + ".a";
+        if (m.name == lib && m.build_type == "BUILD_STATIC_LIBRARY") {
+          lib_path = GetOutputPath(m) + ".a";
           break;
         }
       }
-      if (!libPath.empty()) {
-        cmd += " " + libPath;
+      if (!lib_path.empty()) {
+        cmd += " " + lib_path;
       } else {
         // Fallback to -l flag
-        std::string libName = lib;
-        if (libName.substr(0, 3) == "lib") libName = libName.substr(3);
-        cmd += " -l" + libName;
+        std::string lib_name = lib;
+        if (lib_name.substr(0, 3) == "lib") lib_name = lib_name.substr(3);
+        cmd += " -l" + lib_name;
       }
     }
     return ExecuteCmd(cmd);
@@ -724,12 +724,12 @@ bool MkScanner::BuildModule(const MkModule& module) {
   }
 
   std::printf("Building: %s (%s)\n", module.name.c_str(),
-              module.buildType.c_str());
+              module.build_type.c_str());
 
   // Compile all sources
   for (const auto& src : module.srcs) {
-    std::string objFile = GetObjectPath(module, src);
-    if (!CompileSource(module, src, objFile)) {
+    std::string obj_file = GetObjectPath(module, src);
+    if (!CompileSource(module, src, obj_file)) {
       std::fprintf(stderr, "gor_make: *** [%s] Error compiling %s\n",
                    module.name.c_str(), src.c_str());
       return false;
@@ -753,9 +753,9 @@ int MkScanner::BuildAll() {
   std::vector<std::string> order = {"BUILD_STATIC_LIBRARY",
                                      "BUILD_SHARED_LIBRARY",
                                      "BUILD_EXECUTABLE"};
-  for (const auto& buildType : order) {
+  for (const auto& build_type : order) {
     for (const auto& module : modules_) {
-      if (module.buildType == buildType) {
+      if (module.build_type == build_type) {
         if (!BuildModule(module)) return 1;
       }
     }
@@ -763,9 +763,9 @@ int MkScanner::BuildAll() {
 
   // Build any remaining modules
   for (const auto& module : modules_) {
-    if (module.buildType != "BUILD_STATIC_LIBRARY" &&
-        module.buildType != "BUILD_SHARED_LIBRARY" &&
-        module.buildType != "BUILD_EXECUTABLE") {
+    if (module.build_type != "BUILD_STATIC_LIBRARY" &&
+        module.build_type != "BUILD_SHARED_LIBRARY" &&
+        module.build_type != "BUILD_EXECUTABLE") {
       if (!BuildModule(module)) return 1;
     }
   }

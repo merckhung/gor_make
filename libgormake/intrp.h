@@ -26,13 +26,13 @@ class Intrp {
   Intrp();
   virtual ~Intrp();
 
-  bool SetupAsts(const std::vector<ExprAst*>* exprAsts,
-                 const std::vector<ReceiptAst*>* receiptAsts);
+  bool SetupAsts(const std::vector<ExprAst*>* expr_asts,
+                 const std::vector<ReceiptAst*>* receipt_asts);
   int ExecuteMakefile(int argc, char** argv);
 
  private:
-  const std::vector<ExprAst*>* exprAsts_;
-  const std::vector<ReceiptAst*>* receiptAsts_;
+  const std::vector<ExprAst*>* expr_asts_;
+  const std::vector<ReceiptAst*>* receipt_asts_;
 };
 
 }  // namespace gormake

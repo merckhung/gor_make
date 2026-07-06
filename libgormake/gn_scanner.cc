@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#include "gnscanner.h"
-#include "buildenginebase.h"
+#include "gn_scanner.h"
+#include "build_engine_base.h"
 
 #include <algorithm>
 #include <cctype>
@@ -107,11 +107,11 @@ static bool IsTargetType(const std::string& name) {
   // buildflag_header, java_library, android_library, etc.
   if (name.empty()) return false;
 
-  static const std::unordered_set<std::string> kKeywords = {
+  static const std::unordered_set<std::string> k_keywords = {
     "if", "else", "for", "foreach", "import", "template",
     "assert", "print", "defined", "not", "and", "or",
   };
-  if (kKeywords.count(name) > 0) return false;
+  if (k_keywords.count(name) > 0) return false;
 
   // Must be a valid identifier (letters, digits, underscores)
   for (char c : name) {
@@ -124,7 +124,7 @@ static bool IsTargetType(const std::string& name) {
 // GnScanner public methods
 // ---------------------------------------------------------------------------
 
-GnScanner::GnScanner() : inTarget_(false), braceDepth_(0) {}
+GnScanner::GnScanner() : in_target_(false), brace_depth_(0) {}
 
 GnScanner::~GnScanner() {}
 
@@ -135,7 +135,7 @@ bool GnScanner::ScanFile(const std::string& path) {
   }
 
   current_.path = path;
-  current_.srcDir = buildutil::DirName(path);
+  current_.src_dir = buildutil::DirName(path);
 
   // Read line by line, joining line continuations (backslash-newline).
   std::string buffer;
@@ -174,24 +174,24 @@ bool GnScanner::ScanFile(const std::string& path) {
   return true;
 }
 
-void GnScanner::ScanDirectory(const std::string& dirPath) {
+void GnScanner::ScanDirectory(const std::string& dir_path) {
   std::error_code ec;
-  for (auto& entry : fs::recursive_directory_iterator(dirPath, ec)) {
+  for (auto& entry : fs::recursive_directory_iterator(dir_path, ec)) {
     if (ec) continue;
     if (entry.path().filename() == "BUILD.gn") {
-      std::string entryStr = entry.path().string();
+      std::string entry_str = entry.path().string();
       // Skip common output/build directories.
-      if (entryStr.find("/out/") != std::string::npos) continue;
-      if (entryStr.find("/bazel-") != std::string::npos) continue;
-      if (entryStr.find("/.git/") != std::string::npos) continue;
+      if (entry_str.find("/out/") != std::string::npos) continue;
+      if (entry_str.find("/bazel-") != std::string::npos) continue;
+      if (entry_str.find("/.git/") != std::string::npos) continue;
       try {
-        ScanFile(entryStr);
+        ScanFile(entry_str);
       } catch (const std::exception& e) {
         std::fprintf(stderr, "gor_make: [warning] error parsing %s: %s\n",
-                     entryStr.c_str(), e.what());
+                     entry_str.c_str(), e.what());
       } catch (...) {
         std::fprintf(stderr, "gor_make: [warning] unknown error parsing %s\n",
-                     entryStr.c_str());
+                     entry_str.c_str());
       }
     }
   }
@@ -207,13 +207,13 @@ const std::vector<GnTarget>& GnScanner::GetTargets() const {
 
 std::string GnScanner::StripComment(const std::string& line) const {
   std::string result;
-  bool inString = false;
+  bool in_string = false;
   for (size_t i = 0; i < line.size(); ++i) {
     char c = line[i];
     if (c == '"' && (i == 0 || line[i - 1] != '\\')) {
-      inString = !inString;
+      in_string = !in_string;
     }
-    if (c == '#' && !inString) {
+    if (c == '#' && !in_string) {
       break;
     }
     result += c;
@@ -349,8 +349,8 @@ std::string GnScanner::ExpandVars(const std::string& s) const {
       if (s[i + 1] == '{') {
         size_t close = s.find('}', i + 2);
         if (close != std::string::npos) {
-          std::string varName = s.substr(i + 2, close - i - 2);
-          auto it = variables_.find(varName);
+          std::string var_name = s.substr(i + 2, close - i - 2);
+          auto it = variables_.find(var_name);
           if (it != variables_.end()) {
             result += it->second;
           }
@@ -360,8 +360,8 @@ std::string GnScanner::ExpandVars(const std::string& s) const {
       } else if (IsIdentStartChar(s[i + 1])) {
         size_t j = i + 1;
         while (j < s.size() && IsIdentChar(s[j])) j++;
-        std::string varName = s.substr(i + 1, j - i - 1);
-        auto it = variables_.find(varName);
+        std::string var_name = s.substr(i + 1, j - i - 1);
+        auto it = variables_.find(var_name);
         if (it != variables_.end()) {
           result += it->second;
         }
@@ -384,8 +384,8 @@ std::vector<std::string> GnScanner::ResolveValue(const std::string& s) const {
 
   // If it's a bare identifier that is a known list variable, return that list.
   {
-    auto it = listVariables_.find(trimmed);
-    if (it != listVariables_.end()) {
+    auto it = list_variables_.find(trimmed);
+    if (it != list_variables_.end()) {
       return it->second;
     }
   }
@@ -429,10 +429,10 @@ void GnScanner::AssignProperty(const std::string& name,
     }
   } else if (name == "public_deps") {
     if (append) {
-      current_.publicDeps.insert(current_.publicDeps.end(), values.begin(),
+      current_.public_deps.insert(current_.public_deps.end(), values.begin(),
                                  values.end());
     } else {
-      current_.publicDeps = values;
+      current_.public_deps = values;
     }
   } else if (name == "cflags") {
     if (append) {
@@ -457,10 +457,10 @@ void GnScanner::AssignProperty(const std::string& name,
     }
   } else if (name == "include_dirs") {
     if (append) {
-      current_.includeDirs.insert(current_.includeDirs.end(), values.begin(),
+      current_.include_dirs.insert(current_.include_dirs.end(), values.begin(),
                                    values.end());
     } else {
-      current_.includeDirs = values;
+      current_.include_dirs = values;
     }
   } else if (name == "defines") {
     if (append) {
@@ -488,10 +488,10 @@ void GnScanner::AssignProperty(const std::string& name,
 //   executable("name") {
 //   static_library("name") {
 //   config("name") {
-// On success, sets targetType and targetName. Returns true.
+// On success, sets target_type and target_name. Returns true.
 static bool ParseTargetHeader(const std::string& trimmed,
-                              std::string* targetType,
-                              std::string* targetName) {
+                              std::string* target_type,
+                              std::string* target_name) {
   // Find the opening paren.
   size_t paren = trimmed.find('(');
   if (paren == std::string::npos) return false;
@@ -501,55 +501,55 @@ static bool ParseTargetHeader(const std::string& trimmed,
   if (!IsTargetType(type)) return false;
 
   // Find the closing paren.
-  size_t closeParen = trimmed.find(')', paren + 1);
-  if (closeParen == std::string::npos) return false;
+  size_t close_paren = trimmed.find(')', paren + 1);
+  if (close_paren == std::string::npos) return false;
 
   // Extract the argument (the target name string).
-  std::string arg = Trim(trimmed.substr(paren + 1, closeParen - paren - 1));
+  std::string arg = Trim(trimmed.substr(paren + 1, close_paren - paren - 1));
 
   // Remove surrounding quotes if present.
   if (arg.size() >= 2 && arg.front() == '"' && arg.back() == '"') {
     arg = arg.substr(1, arg.size() - 2);
   }
 
-  *targetType = type;
-  *targetName = arg;
+  *target_type = type;
+  *target_name = arg;
   return true;
 }
 
-void GnScanner::ProcessLine(const std::string& rawLine) {
+void GnScanner::ProcessLine(const std::string& raw_line) {
   // Strip comments.
-  std::string line = StripComment(rawLine);
+  std::string line = StripComment(raw_line);
   std::string trimmed = Trim(line);
 
   if (trimmed.empty()) return;
 
   // ---- Detect target block start: type("name") { ----
-  if (!inTarget_) {
+  if (!in_target_) {
     // Check if this line starts a target block.
     // It must contain a target type call followed by '{'.
-    size_t bracePos = trimmed.find('{');
-    if (bracePos != std::string::npos) {
-      std::string beforeBrace = Trim(trimmed.substr(0, bracePos));
-      std::string targetType;
-      std::string targetName;
-      if (ParseTargetHeader(beforeBrace, &targetType, &targetName)) {
-        // Start a new target. Preserve path/srcDir set by ScanFile.
-        std::string savedPath = current_.path;
-        std::string savedSrcDir = current_.srcDir;
+    size_t brace_pos = trimmed.find('{');
+    if (brace_pos != std::string::npos) {
+      std::string before_brace = Trim(trimmed.substr(0, brace_pos));
+      std::string target_type;
+      std::string target_name;
+      if (ParseTargetHeader(before_brace, &target_type, &target_name)) {
+        // Start a new target. Preserve path/src_dir set by ScanFile.
+        std::string saved_path = current_.path;
+        std::string saved_src_dir = current_.src_dir;
         current_ = GnTarget();
-        current_.type = targetType;
-        current_.name = targetName;
-        current_.path = savedPath;
-        current_.srcDir = savedSrcDir;
+        current_.type = target_type;
+        current_.name = target_name;
+        current_.path = saved_path;
+        current_.src_dir = saved_src_dir;
 
-        inTarget_ = true;
-        braceDepth_ = 1;
+        in_target_ = true;
+        brace_depth_ = 1;
 
         // Process any content after the opening brace on the same line.
-        std::string afterBrace = trimmed.substr(bracePos + 1);
-        if (!Trim(afterBrace).empty()) {
-          ProcessLine(afterBrace);
+        std::string after_brace = trimmed.substr(brace_pos + 1);
+        if (!Trim(after_brace).empty()) {
+          ProcessLine(after_brace);
         }
         return;
       }
@@ -558,18 +558,18 @@ void GnScanner::ProcessLine(const std::string& rawLine) {
     // ---- Inside a target block ----
     // Track brace depth to handle nested blocks.
     // We need to scan for braces, respecting strings.
-    bool inString = false;
+    bool in_string = false;
     for (size_t i = 0; i < trimmed.size(); ++i) {
       char c = trimmed[i];
       if (c == '"' && (i == 0 || trimmed[i - 1] != '\\')) {
-        inString = !inString;
+        in_string = !in_string;
       }
-      if (!inString) {
+      if (!in_string) {
         if (c == '{') {
-          braceDepth_++;
+          brace_depth_++;
         } else if (c == '}') {
-          braceDepth_--;
-          if (braceDepth_ == 0) {
+          brace_depth_--;
+          if (brace_depth_ == 0) {
             // End of target block.
             // Process any content before the closing brace.
             std::string before = trimmed.substr(0, i);
@@ -580,13 +580,13 @@ void GnScanner::ProcessLine(const std::string& rawLine) {
             if (!current_.name.empty()) {
               targets_.push_back(current_);
             }
-            // Preserve path/srcDir for the next target in the same file.
-            std::string savedPath = current_.path;
-            std::string savedSrcDir = current_.srcDir;
-            inTarget_ = false;
+            // Preserve path/src_dir for the next target in the same file.
+            std::string saved_path = current_.path;
+            std::string saved_src_dir = current_.src_dir;
+            in_target_ = false;
             current_ = GnTarget();
-            current_.path = savedPath;
-            current_.srcDir = savedSrcDir;
+            current_.path = saved_path;
+            current_.src_dir = saved_src_dir;
 
             // Process any content after the closing brace (rare).
             std::string after = trimmed.substr(i + 1);
@@ -601,50 +601,50 @@ void GnScanner::ProcessLine(const std::string& rawLine) {
 
     // Still inside the target block at depth >= 1.
     // Parse property assignments: name = value  OR  name += value
-    size_t eqPos = std::string::npos;
-    bool isAppend = false;
-    bool inStr = false;
+    size_t eq_pos = std::string::npos;
+    bool is_append = false;
+    bool in_str = false;
     for (size_t i = 0; i < trimmed.size(); ++i) {
       char c = trimmed[i];
       if (c == '"' && (i == 0 || trimmed[i - 1] != '\\')) {
-        inStr = !inStr;
+        in_str = !in_str;
       }
-      if (!inStr && c == '=') {
+      if (!in_str && c == '=') {
         if (i > 0 && trimmed[i - 1] == '+') {
-          isAppend = true;
-          eqPos = i - 1;
+          is_append = true;
+          eq_pos = i - 1;
         } else {
-          isAppend = false;
-          eqPos = i;
+          is_append = false;
+          eq_pos = i;
         }
         break;
       }
     }
 
-    if (eqPos != std::string::npos) {
-      std::string propName = Trim(trimmed.substr(0, eqPos));
-      size_t valStart = isAppend ? eqPos + 2 : eqPos + 1;
-      std::string rawValue = Trim(trimmed.substr(valStart));
+    if (eq_pos != std::string::npos) {
+      std::string prop_name = Trim(trimmed.substr(0, eq_pos));
+      size_t val_start = is_append ? eq_pos + 2 : eq_pos + 1;
+      std::string raw_value = Trim(trimmed.substr(val_start));
 
       // Expand variable references in the value.
-      std::string expanded = ExpandVars(rawValue);
+      std::string expanded = ExpandVars(raw_value);
 
       // Resolve to a list of strings.
       std::vector<std::string> values = ResolveValue(expanded);
 
       // Assign to the appropriate property.
-      AssignProperty(propName, values, isAppend);
+      AssignProperty(prop_name, values, is_append);
 
       // Also store as a local variable for later references.
-      if (isAppend) {
-        auto it = listVariables_.find(propName);
-        if (it != listVariables_.end()) {
+      if (is_append) {
+        auto it = list_variables_.find(prop_name);
+        if (it != list_variables_.end()) {
           it->second.insert(it->second.end(), values.begin(), values.end());
         } else {
-          listVariables_[propName] = values;
+          list_variables_[prop_name] = values;
         }
       } else {
-        listVariables_[propName] = values;
+        list_variables_[prop_name] = values;
       }
       // Also keep a scalar form.
       std::string scalar;
@@ -652,7 +652,7 @@ void GnScanner::ProcessLine(const std::string& rawLine) {
         if (i > 0) scalar += " ";
         scalar += values[i];
       }
-      variables_[propName] = scalar;
+      variables_[prop_name] = scalar;
       return;
     }
 
@@ -663,44 +663,44 @@ void GnScanner::ProcessLine(const std::string& rawLine) {
 
   // ---- Top-level (outside any target block) ----
   // Parse top-level variable assignments: myvar = value  OR  myvar += value
-  size_t eqPos = std::string::npos;
-  bool isAppend = false;
-  bool inStr = false;
+  size_t eq_pos = std::string::npos;
+  bool is_append = false;
+  bool in_str = false;
   for (size_t i = 0; i < trimmed.size(); ++i) {
     char c = trimmed[i];
     if (c == '"' && (i == 0 || trimmed[i - 1] != '\\')) {
-      inStr = !inStr;
+      in_str = !in_str;
     }
-    if (!inStr && c == '=') {
+    if (!in_str && c == '=') {
       if (i > 0 && trimmed[i - 1] == '+') {
-        isAppend = true;
-        eqPos = i - 1;
+        is_append = true;
+        eq_pos = i - 1;
       } else {
-        isAppend = false;
-        eqPos = i;
+        is_append = false;
+        eq_pos = i;
       }
       break;
     }
   }
 
-  if (eqPos != std::string::npos) {
-    std::string varName = Trim(trimmed.substr(0, eqPos));
-    size_t valStart = isAppend ? eqPos + 2 : eqPos + 1;
-    std::string rawValue = Trim(trimmed.substr(valStart));
-    std::string expanded = ExpandVars(rawValue);
+  if (eq_pos != std::string::npos) {
+    std::string var_name = Trim(trimmed.substr(0, eq_pos));
+    size_t val_start = is_append ? eq_pos + 2 : eq_pos + 1;
+    std::string raw_value = Trim(trimmed.substr(val_start));
+    std::string expanded = ExpandVars(raw_value);
 
     // Store as a list variable if the value is a list literal.
     if (!expanded.empty() && expanded.front() == '[') {
       std::vector<std::string> values = ParseList(expanded);
-      if (isAppend) {
-        auto it = listVariables_.find(varName);
-        if (it != listVariables_.end()) {
+      if (is_append) {
+        auto it = list_variables_.find(var_name);
+        if (it != list_variables_.end()) {
           it->second.insert(it->second.end(), values.begin(), values.end());
         } else {
-          listVariables_[varName] = values;
+          list_variables_[var_name] = values;
         }
       } else {
-        listVariables_[varName] = values;
+        list_variables_[var_name] = values;
       }
       // Also keep a scalar form.
       std::string scalar;
@@ -708,13 +708,13 @@ void GnScanner::ProcessLine(const std::string& rawLine) {
         if (i > 0) scalar += " ";
         scalar += values[i];
       }
-      variables_[varName] = scalar;
+      variables_[var_name] = scalar;
     } else {
       // Scalar variable.
-      if (isAppend) {
-        variables_[varName] += " " + expanded;
+      if (is_append) {
+        variables_[var_name] += " " + expanded;
       } else {
-        variables_[varName] = expanded;
+        variables_[var_name] = expanded;
       }
     }
     return;
@@ -723,33 +723,33 @@ void GnScanner::ProcessLine(const std::string& rawLine) {
   // Handle import("//path/file.gni") — scan the imported file
   if (trimmed.substr(0, 6) == "import") {
     // Extract the string argument
-    size_t openParen = trimmed.find('(');
-    size_t closeParen = trimmed.rfind(')');
-    if (openParen != std::string::npos && closeParen != std::string::npos) {
-      std::string arg = trimmed.substr(openParen + 1, closeParen - openParen - 1);
+    size_t open_paren = trimmed.find('(');
+    size_t close_paren = trimmed.rfind(')');
+    if (open_paren != std::string::npos && close_paren != std::string::npos) {
+      std::string arg = trimmed.substr(open_paren + 1, close_paren - open_paren - 1);
       arg = Trim(arg);
       // Remove quotes
       if (arg.size() >= 2 && (arg[0] == '"' || arg[0] == '\'')) {
         arg = arg.substr(1, arg.size() - 2);
       }
       // Resolve //path to filesystem path
-      std::string importPath;
+      std::string import_path;
       if (arg.substr(0, 2) == "//") {
-        // Try relative to rootDir_ if set, otherwise current srcDir
+        // Try relative to root_dir_ if set, otherwise current src_dir
         // Walk up to find the source root
-        importPath = current_.srcDir + "/../" + arg.substr(2);
+        import_path = current_.src_dir + "/../" + arg.substr(2);
       } else if (arg[0] == '/') {
-        importPath = arg;
+        import_path = arg;
       } else {
-        importPath = current_.srcDir + "/" + arg;
+        import_path = current_.src_dir + "/" + arg;
       }
       // Check if file exists
       struct stat st;
-      if (stat(importPath.c_str(), &st) == 0) {
+      if (stat(import_path.c_str(), &st) == 0) {
         // Avoid re-importing the same file
-        if (visitedFiles_.find(importPath) == visitedFiles_.end()) {
-          visitedFiles_.insert(importPath);
-          ScanFile(importPath);
+        if (visited_files_.find(import_path) == visited_files_.end()) {
+          visited_files_.insert(import_path);
+          ScanFile(import_path);
         }
       }
     }
@@ -778,7 +778,7 @@ void GnScanner::OutputJson() const {
     printf("    {\n");
     printf("      \"name\": \"%s\",\n", JsonEscape(tgt.name).c_str());
     printf("      \"type\": \"%s\",\n", JsonEscape(tgt.type).c_str());
-    printf("      \"src_dir\": \"%s\",\n", JsonEscape(tgt.srcDir).c_str());
+    printf("      \"src_dir\": \"%s\",\n", JsonEscape(tgt.src_dir).c_str());
     printf("      \"path\": \"%s\",\n", JsonEscape(tgt.path).c_str());
 
     printf("      \"srcs\": ");
@@ -790,7 +790,7 @@ void GnScanner::OutputJson() const {
     printf(",\n");
 
     printf("      \"public_deps\": ");
-    OutputJsonArray(tgt.publicDeps);
+    OutputJsonArray(tgt.public_deps);
     printf(",\n");
 
     printf("      \"cflags\": ");
@@ -806,7 +806,7 @@ void GnScanner::OutputJson() const {
     printf(",\n");
 
     printf("      \"include_dirs\": ");
-    OutputJsonArray(tgt.includeDirs);
+    OutputJsonArray(tgt.include_dirs);
     printf(",\n");
 
     printf("      \"defines\": ");
@@ -837,90 +837,90 @@ void GnScanner::OutputJson() const {
 namespace gormake {
 
 std::string GnScanner::GetOutputPath(const GnTarget& target) const {
-  std::string dir = target.srcDir.empty() ? "." : target.srcDir;
+  std::string dir = target.src_dir.empty() ? "." : target.src_dir;
   return dir + "/build/" + target.name;
 }
 
 std::string GnScanner::GetObjectPath(const GnTarget& target,
                                       const std::string& src) const {
-  std::string dir = target.srcDir.empty() ? "." : target.srcDir;
+  std::string dir = target.src_dir.empty() ? "." : target.src_dir;
   return dir + "/build/obj/" + target.name + "/" + buildutil::BaseName(src) + ".o";
 }
 
-bool GnScanner::NeedsRecompile(const std::string& objFile,
-                                const std::string& srcFile) const {
-  return buildutil::NeedsRecompile(objFile, srcFile);
+bool GnScanner::NeedsRecompile(const std::string& obj_file,
+                                const std::string& src_file) const {
+  return buildutil::NeedsRecompile(obj_file, src_file);
 }
 
 bool GnScanner::ExecuteCmd(const std::string& cmd) {
-  if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
+  if (dry_run_) { std::printf("  %s\n", cmd.c_str()); return true; }
   return buildutil::ExecuteCmd(cmd);
 }
 
 bool GnScanner::CompileSource(const GnTarget& target, const std::string& src,
-                               const std::string& objFile) {
-  if (!NeedsRecompile(objFile, src)) {
+                               const std::string& obj_file) {
+  if (!NeedsRecompile(obj_file, src)) {
     std::printf("  [skip] %s (up-to-date)\n", src.c_str());
     return true;
   }
 
-  std::string srcPath = src;
-  if (srcPath[0] != '/') {
-    std::string dir = target.srcDir.empty() ? "." : target.srcDir;
-    srcPath = dir + "/" + srcPath;
+  std::string src_path = src;
+  if (src_path[0] != '/') {
+    std::string dir = target.src_dir.empty() ? "." : target.src_dir;
+    src_path = dir + "/" + src_path;
   }
 
   std::string compiler = buildutil::GetCompiler(src);
-  std::string cmd = compiler + " -MMD -MP -c -o " + objFile + " " + srcPath;
+  std::string cmd = compiler + " -MMD -MP -c -o " + obj_file + " " + src_path;
 
   for (const auto& f : target.cflags) cmd += " " + f;
   for (const auto& f : target.cppflags) cmd += " " + f;
   for (const auto& d : target.defines) cmd += " -D" + d;
-  for (const auto& inc : target.includeDirs) {
+  for (const auto& inc : target.include_dirs) {
     if (inc[0] == '/') cmd += " -I" + inc;
     else {
-      std::string dir = target.srcDir.empty() ? "." : target.srcDir;
+      std::string dir = target.src_dir.empty() ? "." : target.src_dir;
       cmd += " -I" + dir + "/" + inc;
     }
   }
   cmd += " -Wall";
 
-  std::string objDir = objFile.substr(0, objFile.find_last_of('/'));
-  if (!dryRun_) buildutil::MkdirP(objDir);
+  std::string obj_dir = obj_file.substr(0, obj_file.find_last_of('/'));
+  if (!dry_run_) buildutil::MkdirP(obj_dir);
   return ExecuteCmd(cmd);
 }
 
 bool GnScanner::LinkTarget(const GnTarget& target) {
-  std::string outputPath = GetOutputPath(target);
-  std::string dir = target.srcDir.empty() ? "." : target.srcDir;
-  if (!dryRun_) buildutil::MkdirP(dir + "/build");
+  std::string output_path = GetOutputPath(target);
+  std::string dir = target.src_dir.empty() ? "." : target.src_dir;
+  if (!dry_run_) buildutil::MkdirP(dir + "/build");
 
-  std::string objFiles;
+  std::string obj_files;
   for (const auto& src : target.srcs) {
-    objFiles += " " + GetObjectPath(target, src);
+    obj_files += " " + GetObjectPath(target, src);
   }
 
   if (target.type == "static_library") {
-    std::string cmd = "ar rcs " + outputPath + ".a" + objFiles;
+    std::string cmd = "ar rcs " + output_path + ".a" + obj_files;
     return ExecuteCmd(cmd);
   }
 
   if (target.type == "shared_library") {
-    std::string cmd = "g++ -shared -o " + outputPath + ".so" + objFiles;
+    std::string cmd = "g++ -shared -o " + output_path + ".so" + obj_files;
     for (const auto& f : target.ldflags) cmd += " " + f;
     return ExecuteCmd(cmd);
   }
 
   if (target.type == "executable") {
-    std::string cmd = "g++ -o " + outputPath + objFiles;
+    std::string cmd = "g++ -o " + output_path + obj_files;
     for (const auto& f : target.ldflags) cmd += " " + f;
 
     // Link deps (static/shared libraries built by us)
     for (const auto& dep : target.deps) {
-      std::string depName = dep;
-      if (!depName.empty() && depName[0] == ':') depName = depName.substr(1);
+      std::string dep_name = dep;
+      if (!dep_name.empty() && dep_name[0] == ':') dep_name = dep_name.substr(1);
       for (const auto& t : targets_) {
-        if (t.name == depName) {
+        if (t.name == dep_name) {
           std::string path = GetOutputPath(t);
           if (t.type == "static_library") cmd += " " + path + ".a";
           else if (t.type == "shared_library") cmd += " " + path + ".so";
@@ -949,8 +949,8 @@ bool GnScanner::BuildTarget(const GnTarget& target) {
   std::printf("Building: %s (%s)\n", target.name.c_str(), target.type.c_str());
 
   for (const auto& src : target.srcs) {
-    std::string objFile = GetObjectPath(target, src);
-    if (!CompileSource(target, src, objFile)) {
+    std::string obj_file = GetObjectPath(target, src);
+    if (!CompileSource(target, src, obj_file)) {
       std::fprintf(stderr, "gor_make: *** [%s] Error compiling %s\n",
                    target.name.c_str(), src.c_str());
       return false;

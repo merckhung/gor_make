@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "buildenginebase.h"
+#include "build_engine_base.h"
 
 #include <cctype>
 #include <fstream>
@@ -64,32 +64,32 @@ std::string GetCompiler(const std::string& src) {
   return IsCppSource(src) ? "g++" : "gcc";
 }
 
-bool NeedsRecompile(const std::string& objFile,
-                    const std::string& srcFile) {
-  if (!FileExists(objFile)) return true;
-  struct stat objStat, srcStat;
-  if (stat(objFile.c_str(), &objStat) != 0) return true;
-  if (stat(srcFile.c_str(), &srcStat) != 0) return true;
-  if (srcStat.st_mtime > objStat.st_mtime) return true;
+bool NeedsRecompile(const std::string& obj_file,
+                    const std::string& src_file) {
+  if (!FileExists(obj_file)) return true;
+  struct stat obj_stat, src_stat;
+  if (stat(obj_file.c_str(), &obj_stat) != 0) return true;
+  if (stat(src_file.c_str(), &src_stat) != 0) return true;
+  if (src_stat.st_mtime > obj_stat.st_mtime) return true;
   // Check .d dependency file for header changes
-  return CheckDepFile(objFile);
+  return CheckDepFile(obj_file);
 }
 
-bool CheckDepFile(const std::string& objFile) {
-  std::string depFile = objFile;
+bool CheckDepFile(const std::string& obj_file) {
+  std::string dep_file = obj_file;
   // gcc -MMD generates .d file by replacing .o extension with .d
-  size_t dotPos = depFile.rfind('.');
-  if (dotPos != std::string::npos) {
-    depFile = depFile.substr(0, dotPos) + ".d";
+  size_t dot_pos = dep_file.rfind('.');
+  if (dot_pos != std::string::npos) {
+    dep_file = dep_file.substr(0, dot_pos) + ".d";
   } else {
-    depFile += ".d";
+    dep_file += ".d";
   }
-  std::ifstream f(depFile);
+  std::ifstream f(dep_file);
   if (!f.is_open()) return false;  // No .d file, can't check deps
 
   // Get .o file mtime
-  struct stat objStat;
-  if (stat(objFile.c_str(), &objStat) != 0) return false;
+  struct stat obj_stat;
+  if (stat(obj_file.c_str(), &obj_stat) != 0) return false;
 
   // Parse .d file: format is "output: dep1 dep2 dep3..."
   std::string line;
@@ -111,11 +111,11 @@ bool CheckDepFile(const std::string& objFile) {
         end++;
       // Ignore line continuations
       if (end > start && deps[end-1] != '\\') {
-        std::string depPath = deps.substr(start, end - start);
+        std::string dep_path = deps.substr(start, end - start);
         // Check if this dependency is newer than the .o file
-        struct stat depStat;
-        if (stat(depPath.c_str(), &depStat) == 0) {
-          if (depStat.st_mtime > objStat.st_mtime) return true;
+        struct stat dep_stat;
+        if (stat(dep_path.c_str(), &dep_stat) == 0) {
+          if (dep_stat.st_mtime > obj_stat.st_mtime) return true;
         }
       }
       start = end;

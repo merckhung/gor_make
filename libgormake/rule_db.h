@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef GORMAKE_LIBGORMAKE_RULEDB_H_
-#define GORMAKE_LIBGORMAKE_RULEDB_H_
+#ifndef GORMAKE_LIBGORMAKE_RULE_DB_H_
+#define GORMAKE_LIBGORMAKE_RULE_DB_H_
 
 #include <cstdint>
 #include <memory>
@@ -30,20 +30,20 @@ namespace gormake {
 struct RecipeLine {
   std::string text;       // raw command text (before variable expansion)
   bool silent = false;     // @ prefix: don't echo
-  bool ignoreError = false; // - prefix: ignore errors
-  bool alwaysRun = false;  // + prefix: always run even with -n
+  bool ignore_error = false; // - prefix: ignore errors
+  bool always_run = false;  // + prefix: always run even with -n
 };
 
 // A rule: target(s) -> prerequisites + recipe lines.
 struct Rule {
   std::vector<std::string> targets;
   std::vector<std::string> prereqs;
-  std::vector<std::string> orderOnlyPrereqs;  // after | separator
+  std::vector<std::string> order_only_prereqs;  // after | separator
   std::vector<RecipeLine> recipes;
-  bool isPhony = false;
-  bool isDoubleColon = false;  // ::= vs : syntax
-  bool isPattern = false;     // contains % in target
-  std::string patternStem;    // for pattern rules
+  bool is_phony = false;
+  bool is_double_colon = false;  // ::= vs : syntax
+  bool is_pattern = false;     // contains % in target
+  std::string pattern_stem;    // for pattern rules
 
   Rule() = default;
 };
@@ -78,12 +78,12 @@ class RuleDB {
 
   // Get all targets.
   const std::unordered_map<std::string, std::vector<Rule*>>& GetAllRules() const {
-    return targetToRules_;
+    return target_to_rules_;
   }
 
   // Get pattern rules.
   const std::vector<std::unique_ptr<Rule>>& GetPatternRules() const {
-    return patternRules_;
+    return pattern_rules_;
   }
 
   // Get the default goal (first non-pattern target).
@@ -94,15 +94,15 @@ class RuleDB {
   std::vector<std::unique_ptr<Rule>> rules_;
 
   // Pattern rules (targets with %).
-  std::vector<std::unique_ptr<Rule>> patternRules_;
+  std::vector<std::unique_ptr<Rule>> pattern_rules_;
 
   // Map: target name -> list of rules.
-  std::unordered_map<std::string, std::vector<Rule*>> targetToRules_;
+  std::unordered_map<std::string, std::vector<Rule*>> target_to_rules_;
 
   // Set of phony targets.
-  std::unordered_set<std::string> phonyTargets_;
+  std::unordered_set<std::string> phony_targets_;
 };
 
 }  // namespace gormake
 
-#endif  // GORMAKE_LIBGORMAKE_RULEDB_H_
+#endif  // GORMAKE_LIBGORMAKE_RULE_DB_H_

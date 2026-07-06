@@ -22,11 +22,11 @@
 #include <vector>
 
 #include "engine.h"
-#include "bpengine.h"
-#include "cmakescanner.h"
-#include "gnscanner.h"
-#include "mkscanner.h"
-#include "sconscanner.h"
+#include "bp_engine.h"
+#include "cmake_scanner.h"
+#include "gn_scanner.h"
+#include "mk_scanner.h"
+#include "scons_scanner.h"
 #include "gormake.h"
 
 static void usage() {
@@ -101,25 +101,25 @@ static bool IsVarAssignment(const std::string& s) {
 
 int main(int argc, char** argv) {
   gormake::MakeOptions opts;
-  gormake::BpBuildOptions bpOpts;
-  bool bpMode = false;
-  bool mkMode = false;
-  bool mkJsonOutput = false;
-  std::string mkFile;
-  std::string mkDir;
-  bool gnMode = false;
-  bool gnJsonOutput = false;
-  std::string gnFile;
-  std::string gnDir;
-  bool cmakeMode = false;
-  bool cmakeJsonOutput = false;
-  std::string cmakeFile;
-  std::string cmakeDir;
-  bool sconsMode = false;
-  bool sconsJsonOutput = false;
-  std::string sconsFile;
-  std::string sconsDir;
-  bool dryRun = false;
+  gormake::BpBuildOptions bp_opts;
+  bool bp_mode = false;
+  bool mk_mode = false;
+  bool mk_json_output = false;
+  std::string mk_file;
+  std::string mk_dir;
+  bool gn_mode = false;
+  bool gn_json_output = false;
+  std::string gn_file;
+  std::string gn_dir;
+  bool cmake_mode = false;
+  bool cmake_json_output = false;
+  std::string cmake_file;
+  std::string cmake_dir;
+  bool scons_mode = false;
+  bool scons_json_output = false;
+  std::string scons_file;
+  std::string scons_dir;
+  bool dry_run = false;
   int jobs = 1;
 
 
@@ -136,27 +136,27 @@ int main(int argc, char** argv) {
       return 0;
     } else if (arg == "-n" || arg == "--dry-run" || arg == "--just-print" ||
                arg == "--recon") {
-      opts.dryRun = true;
-      bpOpts.dryRun = true;
-      dryRun = true;
+      opts.dry_run = true;
+      bp_opts.dry_run = true;
+      dry_run = true;
     } else if (arg == "-s" || arg == "--silent" || arg == "--quiet") {
       opts.silent = true;
     } else if (arg == "-k" || arg == "--keep-going") {
-      opts.keepGoing = true;
+      opts.keep_going = true;
     } else if (arg == "-i" || arg == "--ignore-errors") {
-      opts.ignoreErrors = true;
+      opts.ignore_errors = true;
     } else if (arg == "-B" || arg == "--always-make") {
-      opts.alwaysMake = true;
+      opts.always_make = true;
     } else if (arg == "-w" || arg == "--print-directory") {
-      opts.printDir = true;
+      opts.print_dir = true;
     } else if (arg == "-f" || arg == "--file" || arg == "--makefile") {
       if (i + 1 < argc) {
-        opts.makefilePath = argv[++i];
+        opts.makefile_path = argv[++i];
       }
     } else if (arg.substr(0, 9) == "--file=") {
-      opts.makefilePath = arg.substr(9);
+      opts.makefile_path = arg.substr(9);
     } else if (arg.substr(0, 11) == "--makefile=") {
-      opts.makefilePath = arg.substr(11);
+      opts.makefile_path = arg.substr(11);
     } else if (arg == "-C" || arg == "--directory") {
       if (i + 1 < argc) {
         opts.directory = argv[++i];
@@ -178,121 +178,121 @@ int main(int argc, char** argv) {
     } else if (arg == "-b" || arg == "-m") {
       // Ignored for compatibility
     } else if (arg == "-S" || arg == "--no-keep-going" || arg == "--stop") {
-      opts.keepGoing = false;
+      opts.keep_going = false;
     } else if (arg == "--no-print-directory") {
-      opts.printDir = false;
+      opts.print_dir = false;
     } else if (arg == "--bp") {
-      bpMode = true;
+      bp_mode = true;
     } else if (arg.substr(0, 10) == "--bp-file=") {
-      bpMode = true;
-      bpOpts.bpFilePath = arg.substr(10);
+      bp_mode = true;
+      bp_opts.bp_file_path = arg.substr(10);
     } else if (arg == "--json") {
-      bpOpts.jsonOutput = true;
-      opts.jsonOutput = true;
-      mkJsonOutput = true;
-      gnJsonOutput = true;
-      cmakeJsonOutput = true;
-      sconsJsonOutput = true;
+      bp_opts.json_output = true;
+      opts.json_output = true;
+      mk_json_output = true;
+      gn_json_output = true;
+      cmake_json_output = true;
+      scons_json_output = true;
     } else if (arg == "--mk") {
-      mkMode = true;
+      mk_mode = true;
     } else if (arg.substr(0, 9) == "--mk-file") {
-      mkMode = true;
+      mk_mode = true;
       if (arg.size() > 9 && arg[9] == '=') {
-        mkFile = arg.substr(10);
+        mk_file = arg.substr(10);
       } else if (i + 1 < argc) {
-        mkFile = argv[++i];
+        mk_file = argv[++i];
       }
     } else if (arg.substr(0, 8) == "--mk-dir") {
-      mkMode = true;
+      mk_mode = true;
       if (arg.size() > 8 && arg[8] == '=') {
-        mkDir = arg.substr(9);
+        mk_dir = arg.substr(9);
       } else if (i + 1 < argc) {
-        mkDir = argv[++i];
+        mk_dir = argv[++i];
       }
     } else if (arg == "--gn") {
-      gnMode = true;
+      gn_mode = true;
     } else if (arg.substr(0, 9) == "--gn-file") {
-      gnMode = true;
+      gn_mode = true;
       if (arg.size() > 9 && arg[9] == '=') {
-        gnFile = arg.substr(10);
+        gn_file = arg.substr(10);
       } else if (i + 1 < argc) {
-        gnFile = argv[++i];
+        gn_file = argv[++i];
       }
     } else if (arg.substr(0, 8) == "--gn-dir") {
-      gnMode = true;
+      gn_mode = true;
       if (arg.size() > 8 && arg[8] == '=') {
-        gnDir = arg.substr(9);
+        gn_dir = arg.substr(9);
       } else if (i + 1 < argc) {
-        gnDir = argv[++i];
+        gn_dir = argv[++i];
       }
     } else if (arg == "--cmake") {
-      cmakeMode = true;
+      cmake_mode = true;
     } else if (arg.substr(0, 12) == "--cmake-file") {
-      cmakeMode = true;
+      cmake_mode = true;
       if (arg.size() > 12 && arg[12] == '=') {
-        cmakeFile = arg.substr(13);
+        cmake_file = arg.substr(13);
       } else if (i + 1 < argc) {
-        cmakeFile = argv[++i];
+        cmake_file = argv[++i];
       }
     } else if (arg.substr(0, 11) == "--cmake-dir") {
-      cmakeMode = true;
+      cmake_mode = true;
       if (arg.size() > 11 && arg[11] == '=') {
-        cmakeDir = arg.substr(12);
+        cmake_dir = arg.substr(12);
       } else if (i + 1 < argc) {
-        cmakeDir = argv[++i];
+        cmake_dir = argv[++i];
       }
     } else if (arg == "--scons") {
-      sconsMode = true;
+      scons_mode = true;
     } else if (arg.substr(0, 12) == "--scons-file") {
-      sconsMode = true;
+      scons_mode = true;
       if (arg.size() > 12 && arg[12] == '=') {
-        sconsFile = arg.substr(13);
+        scons_file = arg.substr(13);
       } else if (i + 1 < argc) {
-        sconsFile = argv[++i];
+        scons_file = argv[++i];
       }
     } else if (arg.substr(0, 11) == "--scons-dir") {
-      sconsMode = true;
+      scons_mode = true;
       if (arg.size() > 11 && arg[11] == '=') {
-        sconsDir = arg.substr(12);
+        scons_dir = arg.substr(12);
       } else if (i + 1 < argc) {
-        sconsDir = argv[++i];
+        scons_dir = argv[++i];
       }
     } else if (arg == "--clean") {
-      if (bpMode) {
-        bpOpts.clean = true;
+      if (bp_mode) {
+        bp_opts.clean = true;
       } else {
         // Will be handled by make engine
       }
     } else if (arg == "-v" || arg == "--verbose") {
       opts.silent = false;  // verbose is opposite of silent
-      bpOpts.verbose = true;
+      bp_opts.verbose = true;
     } else if (arg[0] == '-' && arg.size() > 1) {
       // Unknown option, skip
     } else if (IsVarAssignment(arg)) {
-      opts.cmdLineVars.push_back(arg);
+      opts.cmd_line_vars.push_back(arg);
     } else {
       // Target
       opts.goals.push_back(arg);
-      bpOpts.goals.push_back(arg);
+      bp_opts.goals.push_back(arg);
     }
     i++;
   }
 
-  if (mkMode) {
+  if (mk_mode) {
     gormake::MkScanner scanner;
-    scanner.SetDryRun(dryRun);
+    scanner.SetDryRun(dry_run);
     scanner.SetJobs(jobs);
-    if (!mkFile.empty()) {
-      scanner.ScanFile(mkFile);
-    } else if (!mkDir.empty()) {
-      scanner.ScanDirectory(mkDir);
+    if (!mk_file.empty()) {
+      scanner.ScanFile(mk_file);
+    } else if (!mk_dir.empty()) {
+      scanner.ScanDirectory(mk_dir);
     } else if (std::ifstream("Android.mk").good()) {
       scanner.ScanFile("Android.mk");
     } else {
       std::cerr << "gor_make: No Android.mk file found.\n";
       return 1;
     }
-    if (mkJsonOutput) {
+    if (mk_json_output) {
       scanner.OutputJson();
     } else {
       return scanner.BuildAll();
@@ -300,21 +300,21 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  if (gnMode) {
+  if (gn_mode) {
     gormake::GnScanner scanner;
-    scanner.SetDryRun(dryRun);
+    scanner.SetDryRun(dry_run);
     scanner.SetJobs(jobs);
-    if (!gnFile.empty()) {
-      scanner.ScanFile(gnFile);
-    } else if (!gnDir.empty()) {
-      scanner.ScanDirectory(gnDir);
+    if (!gn_file.empty()) {
+      scanner.ScanFile(gn_file);
+    } else if (!gn_dir.empty()) {
+      scanner.ScanDirectory(gn_dir);
     } else if (std::ifstream("BUILD.gn").good()) {
       scanner.ScanFile("BUILD.gn");
     } else {
       std::cerr << "gor_make: No BUILD.gn file found.\n";
       return 1;
     }
-    if (gnJsonOutput) {
+    if (gn_json_output) {
       scanner.OutputJson();
     } else {
       return scanner.BuildAll();
@@ -322,21 +322,21 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  if (cmakeMode) {
+  if (cmake_mode) {
     gormake::CmakeScanner scanner;
-    scanner.SetDryRun(dryRun);
+    scanner.SetDryRun(dry_run);
     scanner.SetJobs(jobs);
-    if (!cmakeFile.empty()) {
-      scanner.ScanFile(cmakeFile);
-    } else if (!cmakeDir.empty()) {
-      scanner.ScanDirectory(cmakeDir);
+    if (!cmake_file.empty()) {
+      scanner.ScanFile(cmake_file);
+    } else if (!cmake_dir.empty()) {
+      scanner.ScanDirectory(cmake_dir);
     } else if (std::ifstream("CMakeLists.txt").good()) {
       scanner.ScanFile("CMakeLists.txt");
     } else {
       std::cerr << "gor_make: No CMakeLists.txt file found.\n";
       return 1;
     }
-    if (cmakeJsonOutput) {
+    if (cmake_json_output) {
       scanner.OutputJson();
     } else {
       return scanner.BuildAll();
@@ -344,14 +344,14 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  if (sconsMode) {
+  if (scons_mode) {
     gormake::SconScanner scanner;
-    scanner.SetDryRun(dryRun);
+    scanner.SetDryRun(dry_run);
     scanner.SetJobs(jobs);
-    if (!sconsFile.empty()) {
-      scanner.ScanFile(sconsFile);
-    } else if (!sconsDir.empty()) {
-      scanner.ScanDirectory(sconsDir);
+    if (!scons_file.empty()) {
+      scanner.ScanFile(scons_file);
+    } else if (!scons_dir.empty()) {
+      scanner.ScanDirectory(scons_dir);
     } else if (std::ifstream("SConstruct").good()) {
       scanner.ScanFile("SConstruct");
     } else if (std::ifstream("SConscript").good()) {
@@ -360,7 +360,7 @@ int main(int argc, char** argv) {
       std::cerr << "gor_make: No SConstruct/SConscript file found.\n";
       return 1;
     }
-    if (sconsJsonOutput) {
+    if (scons_json_output) {
       scanner.OutputJson();
     } else {
       return scanner.BuildAll();
@@ -368,14 +368,14 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  if (bpMode) {
+  if (bp_mode) {
     // Check if Android.bp exists
-    if (bpOpts.bpFilePath == "Android.bp" && !std::ifstream("Android.bp").good()) {
+    if (bp_opts.bp_file_path == "Android.bp" && !std::ifstream("Android.bp").good()) {
       std::cerr << "gor_make: No Android.bp file found.\n";
       return 1;
     }
-    gormake::BpEngine bpEngine;
-    int ret = bpEngine.Run(bpOpts);
+    gormake::BpEngine bp_engine;
+    int ret = bp_engine.Run(bp_opts);
     if (ret != 0) {
       std::cerr << "gor_make: *** Build failed.\n";
     }

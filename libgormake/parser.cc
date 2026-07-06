@@ -32,37 +32,37 @@ Parser::~Parser() {
 }
 
 Parser::PsrState Parser::ParseToAst() {
-  Line::LnTyp lnTyp;
-  ReceiptAst* rAst;
-  ExprAst* eAst;
+  Line::LnTyp ln_typ;
+  ReceiptAst* r_ast;
+  ExprAst* e_ast;
 
   while (lxr_->IsEOF() == false) {
     // Determine the line type
-    lnTyp = lxr_->DetermineLineType();
+    ln_typ = lxr_->DetermineLineType();
 
     // Go to next line if it's empty or a comment
-    if ((lnTyp == Line::LT_EMPTY) || (lnTyp == Line::LT_COMMENT)) {
+    if ((ln_typ == Line::LT_EMPTY) || (ln_typ == Line::LT_COMMENT)) {
       lxr_->NextLine();
       continue;
     }
 
     // Dispatch to line handlers
-    switch (lnTyp) {
+    switch (ln_typ) {
       // Construct a Receipt AST
       case Line::LT_TARGET:
-        rAst = ConstructReceipt();
-        if (rAst == nullptr) {
+        r_ast = ConstructReceipt();
+        if (r_ast == nullptr) {
           break;
         }
-        receiptAsts_.push_back(rAst);
+        receipt_asts_.push_back(r_ast);
         continue;
       // Construct a Variable Assignment AST
       case Line::LT_VARIABLE:
-        eAst = ConstructVariableAssignment();
-        if (eAst == nullptr) {
+        e_ast = ConstructVariableAssignment();
+        if (e_ast == nullptr) {
           return Parser::PSR_WARNING;
         }
-        exprAsts_.push_back(eAst);
+        expr_asts_.push_back(e_ast);
         continue;
 
       case Line::LT_AMB_TABVAR:
@@ -112,88 +112,88 @@ int64_t Parser::GetTokenStrLen() const {
 }
 
 const std::vector<ExprAst*>& Parser::GetExprAsts() const {
-  return exprAsts_;
+  return expr_asts_;
 }
 
 const std::vector<ReceiptAst*>& Parser::GetReceiptAst() const {
-  return receiptAsts_;
+  return receipt_asts_;
 }
 
 ReceiptAst* Parser::ConstructReceipt() {
-  Token::TokTyp tokTyp;
-  Line::LnTyp lnTyp = lxr_->DetermineLineType();
+  Token::TokTyp tok_typ;
+  Line::LnTyp ln_typ = lxr_->DetermineLineType();
   std::vector<std::unique_ptr<ExprAst>*>* names = new std::vector<std::unique_ptr<ExprAst>*>();
   std::vector<std::unique_ptr<ExprAst>*>* prereqs = new std::vector<std::unique_ptr<ExprAst>*>();
   std::vector<std::unique_ptr<std::vector< std::unique_ptr<ExprAst>*>>*>* rules
     = new std::vector<std::unique_ptr<std::vector<std::unique_ptr<ExprAst>*>>*>();
-  std::vector<std::unique_ptr<ExprAst>*>* subRule = new std::vector<std::unique_ptr<ExprAst>*>();
-  bool crossColon = false;
-  bool crossLeadingTabs = false;
+  std::vector<std::unique_ptr<ExprAst>*>* sub_rule = new std::vector<std::unique_ptr<ExprAst>*>();
+  bool cross_colon = false;
+  bool cross_leading_tabs = false;
 
   while (true) {
     // Retrieve a token
-    tokTyp = lxr_->GetNextToken();
+    tok_typ = lxr_->GetNextToken();
 
     // If it's a NEWLINE, then reset everything
-    if ((tokTyp == Token::TOK_NEWLINE)
-        || (tokTyp == Token::TOK_EOF)) {
+    if ((tok_typ == Token::TOK_NEWLINE)
+        || (tok_typ == Token::TOK_EOF)) {
       // If it's a RULE type, must push back first (next rule)
-      if (lnTyp == Line::LT_RULE) {
-        rules->push_back(new std::unique_ptr<std::vector<std::unique_ptr<ExprAst>*>>(subRule));
+      if (ln_typ == Line::LT_RULE) {
+        rules->push_back(new std::unique_ptr<std::vector<std::unique_ptr<ExprAst>*>>(sub_rule));
         // EOF handle
-        if (tokTyp == Token::TOK_EOF) {
+        if (tok_typ == Token::TOK_EOF) {
           break;
         }
         // Allocate a new storage
-        subRule = new std::vector<std::unique_ptr<ExprAst>*>();
+        sub_rule = new std::vector<std::unique_ptr<ExprAst>*>();
       }
 
       // EOF Handle
-      if (tokTyp == Token::TOK_EOF) {
+      if (tok_typ == Token::TOK_EOF) {
         break;
       }
 
       // Update the line type
-      lnTyp = lxr_->DetermineLineType();
+      ln_typ = lxr_->DetermineLineType();
 
       // If the new line is a target, then we should stop here
-      if (lnTyp == Line::LT_TARGET) {
+      if (ln_typ == Line::LT_TARGET) {
         break;
       }
 
       // Reset the state
-      crossLeadingTabs = false;
+      cross_leading_tabs = false;
       continue;
     }
 
     // ':' is the separator of the target line
-    if ((tokTyp == Token::TOK_COLON)
-        && (lnTyp == Line::LT_TARGET)) {
-      crossColon = true;
+    if ((tok_typ == Token::TOK_COLON)
+        && (ln_typ == Line::LT_TARGET)) {
+      cross_colon = true;
       continue;
     }
 
     // In ConstructReceipt(), we handle only TARGET, RULE,
     // COMMENT, and EMPTY lines
-    switch (lnTyp) {
+    switch (ln_typ) {
       case Line::LT_TARGET:
-        if (crossColon == false) {
+        if (cross_colon == false) {
           // Target names
-          if (tokTyp == Token::TOK_ID) {
+          if (tok_typ == Token::TOK_ID) {
             names->push_back(new std::unique_ptr<ExprAst>(new StringExprAst(lxr_->GetTokenString())));
             continue;
           }
-          if (tokTyp == Token::TOK_VAR) {
+          if (tok_typ == Token::TOK_VAR) {
             names->push_back(new std::unique_ptr<ExprAst>(new VariableExprAst(lxr_->GetTokenVarString())));
             continue;
           }
-        } else {  // crossColon == true
+        } else {  // cross_colon == true
           // Target prerequsites
-          if (tokTyp == Token::TOK_ID) {
+          if (tok_typ == Token::TOK_ID) {
             prereqs->push_back(new std::unique_ptr<ExprAst>(new StringExprAst(lxr_->GetTokenString())));
             continue;
           }
-          if (tokTyp == Token::TOK_VAR) {
+          if (tok_typ == Token::TOK_VAR) {
             prereqs->push_back(new std::unique_ptr<ExprAst>(new VariableExprAst(lxr_->GetTokenVarString())));
             continue;
           }
@@ -203,20 +203,20 @@ ReceiptAst* Parser::ConstructReceipt() {
 
       case Line::LT_RULE:
         // Ignore leading tabs & spaces
-        if (crossLeadingTabs == false) {
-          if ((tokTyp != Token::TOK_TAB)
-              && (tokTyp != Token::TOK_SPACE)) {
-            crossLeadingTabs = true;
+        if (cross_leading_tabs == false) {
+          if ((tok_typ != Token::TOK_TAB)
+              && (tok_typ != Token::TOK_SPACE)) {
+            cross_leading_tabs = true;
           } else {
             // Ignore this tab or space char.
             continue;
           }
         }
-        // crossFirstTab == true
-        if (tokTyp == Token::TOK_VAR) {
-          subRule->push_back(new std::unique_ptr<ExprAst>(new VariableExprAst(lxr_->GetTokenVarString())));
+        // cross_first_tab == true
+        if (tok_typ == Token::TOK_VAR) {
+          sub_rule->push_back(new std::unique_ptr<ExprAst>(new VariableExprAst(lxr_->GetTokenVarString())));
         } else {
-          subRule->push_back(new std::unique_ptr<ExprAst>(new StringExprAst(lxr_->GetTokenString())));
+          sub_rule->push_back(new std::unique_ptr<ExprAst>(new StringExprAst(lxr_->GetTokenString())));
         }
         continue;
 
@@ -224,7 +224,7 @@ ReceiptAst* Parser::ConstructReceipt() {
       case Line::LT_EMPTY:
         // Go to next line and update the line type
         lxr_->NextLine();
-        lnTyp = lxr_->DetermineLineType();
+        ln_typ = lxr_->DetermineLineType();
         continue;
 
       default:
@@ -237,30 +237,30 @@ ReceiptAst* Parser::ConstructReceipt() {
 }
 
 ExprAst* Parser::ConstructVariableAssignment() {
-  Token::TokTyp tokTyp;
+  Token::TokTyp tok_typ;
   VariableAssignExprAst::VarAttr attr = VariableAssignExprAst::VAR_NORMAL;
   std::string *name = nullptr;
   std::vector<std::unique_ptr<ExprAst>*>* values = new std::vector<std::unique_ptr<ExprAst>*>();
-  bool crossEqual = false;
-  bool crossLeadingTabs = false;
+  bool cross_equal = false;
+  bool cross_leading_tabs = false;
 
   while (lxr_->IsEOF() == false) {
     // Retrieve a token
-    tokTyp = lxr_->GetNextToken();
+    tok_typ = lxr_->GetNextToken();
 
     // If it's a NEWLINE, then it's done
-    if (tokTyp == Token::TOK_NEWLINE) {
+    if (tok_typ == Token::TOK_NEWLINE) {
       break;
     }
 
     // '=', ':=',, '+=' or '?=' token is the separator
-    if ((tokTyp == Token::TOK_EQUAL)
-        || (tokTyp == Token::TOK_QMEQ)
-        || (tokTyp == Token::TOK_PLUSEQ)
-        || (tokTyp == Token::TOK_COLEQ)) {
-      crossEqual = true;
+    if ((tok_typ == Token::TOK_EQUAL)
+        || (tok_typ == Token::TOK_QMEQ)
+        || (tok_typ == Token::TOK_PLUSEQ)
+        || (tok_typ == Token::TOK_COLEQ)) {
+      cross_equal = true;
       // Override the variable attribute, if it's needed
-      switch (tokTyp) {
+      switch (tok_typ) {
         case Token::TOK_QMEQ:
           attr = VariableAssignExprAst::VAR_QMARK;
           break;
@@ -277,30 +277,30 @@ ExprAst* Parser::ConstructVariableAssignment() {
     }
 
     // Assignment portion, behind the equal sign
-    if (crossEqual == true) {
+    if (cross_equal == true) {
       // Ignore leading tabs & spaces
-      if (crossLeadingTabs == false) {
-        if ((tokTyp != Token::TOK_TAB)
-            && (tokTyp != Token::TOK_SPACE)) {
-          crossLeadingTabs = true;
+      if (cross_leading_tabs == false) {
+        if ((tok_typ != Token::TOK_TAB)
+            && (tok_typ != Token::TOK_SPACE)) {
+          cross_leading_tabs = true;
         } else {
           // Ignore this tab or space char.
           continue;
         }
       }
       // Absorb all ID, TAB, and SPACE tokens
-      if ((tokTyp == Token::TOK_ID)
-          || (tokTyp == Token::TOK_TAB)
-          || (tokTyp == Token::TOK_SPACE)) {
+      if ((tok_typ == Token::TOK_ID)
+          || (tok_typ == Token::TOK_TAB)
+          || (tok_typ == Token::TOK_SPACE)) {
           values->push_back(new std::unique_ptr<ExprAst>(new StringExprAst(lxr_->GetTokenString())));
           continue;
       }
-      if (tokTyp == Token::TOK_VAR) {
+      if (tok_typ == Token::TOK_VAR) {
           values->push_back(new std::unique_ptr<ExprAst>(new VariableExprAst(lxr_->GetTokenVarString())));
           continue;
       }
       // It it's followed by a comment
-      if (tokTyp == Token::TOK_COMMENT) {
+      if (tok_typ == Token::TOK_COMMENT) {
         lxr_->NextLine();
         break;
       }
@@ -309,14 +309,14 @@ ExprAst* Parser::ConstructVariableAssignment() {
     }
 
     // Variable name portion, before the equal sign
-    if (tokTyp == Token::TOK_ID) {
+    if (tok_typ == Token::TOK_ID) {
       name = new std::string(*lxr_->GetTokenString());
       continue;
     }
 
     // Ignore SPACE and TAB
-    if ((tokTyp == Token::TOK_SPACE)
-        || (tokTyp == Token::TOK_TAB)) {
+    if ((tok_typ == Token::TOK_SPACE)
+        || (tok_typ == Token::TOK_TAB)) {
       continue;
     }
 

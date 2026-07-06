@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef GORMAKE_LIBGORMAKE_VARDB_H_
-#define GORMAKE_LIBGORMAKE_VARDB_H_
+#ifndef GORMAKE_LIBGORMAKE_VAR_DB_H_
+#define GORMAKE_LIBGORMAKE_VAR_DB_H_
 
 #include <cstdint>
 #include <functional>
@@ -48,7 +48,7 @@ struct Variable {
   std::string value;
   VarFlavor flavor = VarFlavor::FLAVOR_RECURSIVE;
   VarOrigin origin = VarOrigin::ORIGIN_UNDEFINED;
-  bool fromEnv = false;  // came from environment
+  bool from_env = false;  // came from environment
 
   Variable() = default;
   Variable(std::string n, std::string v, VarFlavor f, VarOrigin o)
@@ -109,7 +109,7 @@ class VariableDB {
 
   // Handle built-in functions.
   std::string CallFunction(const std::string& name,
-                           const std::string& rawArgs,
+                           const std::string& raw_args,
                            const std::string& target,
                            const std::string& prereqs,
                            const std::string& stem) const;
@@ -124,12 +124,12 @@ class VariableDB {
   std::unordered_map<std::string, Variable> vars_;
 
   // Scope stack for automatic variables (pushed/popped per recipe).
-  std::vector<std::unordered_map<std::string, std::string>> autoScope_;
+  std::vector<std::unordered_map<std::string, std::string>> auto_scope_;
 
   // True while inside Expand() to prevent infinite recursion.
-  mutable int expandingDepth_ = 0;
+  mutable int expanding_depth_ = 0;
 };
 
 }  // namespace gormake
 
-#endif  // GORMAKE_LIBGORMAKE_VARDB_H_
+#endif  // GORMAKE_LIBGORMAKE_VAR_DB_H_

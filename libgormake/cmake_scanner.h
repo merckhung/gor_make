@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef GORMAKE_LIBGORMAKE_CMAKESCANNER_H_
-#define GORMAKE_LIBGORMAKE_CMAKESCANNER_H_
+#ifndef GORMAKE_LIBGORMAKE_CMAKE_SCANNER_H_
+#define GORMAKE_LIBGORMAKE_CMAKE_SCANNER_H_
 
 #include <cstdint>
 #include <map>
@@ -28,15 +28,15 @@ namespace gormake {
 struct CmakeTarget {
   std::string name;
   std::string type;       // executable, static_library, shared_library, interface_library
-  std::string srcDir;
+  std::string src_dir;
   std::vector<std::string> srcs;
   std::vector<std::string> cflags;
   std::vector<std::string> cppflags;
   std::vector<std::string> ldflags;
-  std::vector<std::string> includeDirs;
+  std::vector<std::string> include_dirs;
   std::vector<std::string> defines;
-  std::vector<std::string> linkLibs;       // target_link_libraries
-  std::vector<std::string> compileOptions;
+  std::vector<std::string> link_libs;       // target_link_libraries
+  std::vector<std::string> compile_options;
   std::string path;
 };
 
@@ -47,10 +47,10 @@ class CmakeScanner {
   ~CmakeScanner();
 
   bool ScanFile(const std::string& path);
-  void ScanDirectory(const std::string& dirPath);
+  void ScanDirectory(const std::string& dir_path);
   const std::vector<CmakeTarget>& GetTargets() const;
   void OutputJson() const;
-  void SetDryRun(bool v) { dryRun_ = v; }
+  void SetDryRun(bool v) { dry_run_ = v; }
   void SetJobs(int j) { jobs_ = j; }
 
   // Build all targets. Returns 0 on success.
@@ -82,7 +82,7 @@ class CmakeScanner {
 
   // Compile a source file into an object file.
   bool CompileSource(const CmakeTarget& target, const std::string& src,
-                     const std::string& objFile);
+                     const std::string& obj_file);
 
   // Link a target into its final output.
   bool LinkTarget(const CmakeTarget& target);
@@ -98,28 +98,28 @@ class CmakeScanner {
   bool ExecuteCmd(const std::string& cmd);
 
   // Check if file needs recompilation.
-  bool NeedsRecompile(const std::string& objFile,
-                      const std::string& srcFile) const;
+  bool NeedsRecompile(const std::string& obj_file,
+                      const std::string& src_file) const;
 
   std::vector<CmakeTarget> targets_;
   std::map<std::string, std::string> variables_;
 
   // Current target being built
   CmakeTarget current_;
-  bool inTarget_ = false;
-  std::string currentTargetName_;
+  bool in_target_ = false;
+  std::string current_target_name_;
 
   // Track multi-line commands
-  std::string pendingLine_;
-  int parenDepth_ = 0;
+  std::string pending_line_;
+  int paren_depth_ = 0;
 
   // If/else stack
-  std::vector<bool> condStack_;
-  bool dryRun_ = false;
+  std::vector<bool> cond_stack_;
+  bool dry_run_ = false;
   int jobs_ = 1;
   bool active_ = true;
 };
 
 }  // namespace gormake
 
-#endif  // GORMAKE_LIBGORMAKE_CMAKESCANNER_H_
+#endif  // GORMAKE_LIBGORMAKE_CMAKE_SCANNER_H_

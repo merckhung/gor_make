@@ -35,10 +35,10 @@ struct Line {
   };
 
   // Property of a line
-  LnTyp lineType_;
+  LnTyp line_type_;
   int64_t line_;
-  int64_t strPos_;
-  int64_t strLen_;
+  int64_t str_pos_;
+  int64_t str_len_;
 };
 
 }  // namespace gormake

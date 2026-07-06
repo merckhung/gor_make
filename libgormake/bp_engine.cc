@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#include "bpengine.h"
-#include "buildenginebase.h"
+#include "bp_engine.h"
+#include "build_engine_base.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -52,10 +52,10 @@ static std::string Join(const std::vector<std::string>& v, const std::string& se
 }
 
 // Helper: replace extension
-static std::string ReplaceExt(const std::string& path, const std::string& newExt) {
+static std::string ReplaceExt(const std::string& path, const std::string& new_ext) {
   size_t dot = path.find_last_of('.');
   std::string base = (dot == std::string::npos) ? path : path.substr(0, dot);
-  return base + newExt;
+  return base + new_ext;
 }
 
 // BpEngine implementation ------------------------------------------------
@@ -66,9 +66,9 @@ BpEngine::BpEngine() {
   else if (buildutil::FileExists("/usr/bin/clang")) { cc_ = "clang"; cxx_ = "clang++"; }
   ar_ = "ar";
 
-  // commonCflags_ = {"-Wall", "-Werror=no-unused-parameter"};
+  // common_cflags_ = {"-Wall", "-Werror=no-unused-parameter"};
   // Note: -Werror=no-unused-parameter is not standard; use -Wno-unused-parameter instead
-  commonCflags_ = {"-Wall"};
+  common_cflags_ = {"-Wall"};
 }
 
 BpEngine::~BpEngine() {
@@ -84,33 +84,33 @@ int BpEngine::Run(const BpBuildOptions& opts) {
   }
 
   // Parse Android.bp files
-  std::string bpPath = opts.bpFilePath;
-  if (!buildutil::FileExists(bpPath)) {
+  std::string bp_path = opts.bp_file_path;
+  if (!buildutil::FileExists(bp_path)) {
     // Check if it's a directory
     struct stat st;
-    if (stat(bpPath.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+    if (stat(bp_path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
       // It's a directory, look for Android.bp inside it
-      std::string dirPath = bpPath;
-      if (!dirPath.empty() && dirPath.back() == '/') dirPath.pop_back();
-      if (buildutil::FileExists(dirPath + "/Android.bp")) {
-        bpPath = dirPath + "/Android.bp";
+      std::string dir_path = bp_path;
+      if (!dir_path.empty() && dir_path.back() == '/') dir_path.pop_back();
+      if (buildutil::FileExists(dir_path + "/Android.bp")) {
+        bp_path = dir_path + "/Android.bp";
       } else {
         // Walk the directory for Android.bp files
-        ParseBpDirectory(dirPath);
-        bpPath = "";  // Already parsed
+        ParseBpDirectory(dir_path);
+        bp_path = "";  // Already parsed
       }
     } else if (buildutil::FileExists("Android.bp")) {
-      bpPath = "Android.bp";
+      bp_path = "Android.bp";
     } else {
       fprintf(stderr, "gor_make: *** No Android.bp file found.\n");
       return 1;
     }
   }
 
-  if (!bpPath.empty()) {
-    if (!ParseBpFiles(bpPath)) {
+  if (!bp_path.empty()) {
+    if (!ParseBpFiles(bp_path)) {
       fprintf(stderr, "gor_make: *** Failed to parse Android.bp: %s\n",
-              bpPath.c_str());
+              bp_path.c_str());
       return 1;
     }
   }
@@ -124,7 +124,7 @@ int BpEngine::Run(const BpBuildOptions& opts) {
   ApplyDefaults();
 
   // JSON output mode: print module relationships and exit
-  if (opts.jsonOutput) {
+  if (opts.json_output) {
     OutputJson();
     return 0;
   }
@@ -134,7 +134,7 @@ int BpEngine::Run(const BpBuildOptions& opts) {
   if (goals.empty()) {
     // Build all cc_binary modules by default
     for (const auto& [name, mod] : modules_) {
-      if (mod->isBinary) {
+      if (mod->is_binary) {
         goals.push_back(name);
       }
     }
@@ -153,7 +153,7 @@ int BpEngine::Run(const BpBuildOptions& opts) {
     std::unordered_set<std::string> building;
     if (!BuildModule(goal, visited, building)) {
       result = 1;
-      if (!opts.keepGoing) break;
+      if (!opts.keep_going) break;
     }
   }
 
@@ -164,27 +164,27 @@ int BpEngine::Run(const BpBuildOptions& opts) {
   return result;
 }
 
-bool BpEngine::ParseBpFiles(const std::string& rootPath) {
-  if (!ParseSingleBp(rootPath)) {
+bool BpEngine::ParseBpFiles(const std::string& root_path) {
+  if (!ParseSingleBp(root_path)) {
     return false;
   }
 
   // Parse Android.bp files in subdirectories
-  fs::path rootDir = fs::path(rootPath).parent_path();
-  if (rootDir.empty()) rootDir = ".";
-  std::string rootAbs = fs::canonical(rootDir).string();
+  fs::path root_dir = fs::path(root_path).parent_path();
+  if (root_dir.empty()) root_dir = ".";
+  std::string root_abs = fs::canonical(root_dir).string();
 
-  for (auto& entry : fs::recursive_directory_iterator(rootDir)) {
+  for (auto& entry : fs::recursive_directory_iterator(root_dir)) {
     if (entry.path().filename() == "Android.bp") {
       std::string path = entry.path().string();
       // Skip the root file (already parsed)
-      std::string entryAbs = fs::canonical(entry.path()).string();
-      if (entryAbs == rootAbs) continue;
+      std::string entry_abs = fs::canonical(entry.path()).string();
+      if (entry_abs == root_abs) continue;
       // Skip common output/build directories
-      std::string entryStr = entry.path().string();
-      if (entryStr.find("/out/") != std::string::npos) continue;
-      if (entryStr.find("/bazel-") != std::string::npos) continue;
-      if (entryStr.find("/.git/") != std::string::npos) continue;
+      std::string entry_str = entry.path().string();
+      if (entry_str.find("/out/") != std::string::npos) continue;
+      if (entry_str.find("/bazel-") != std::string::npos) continue;
+      if (entry_str.find("/.git/") != std::string::npos) continue;
       try {
         ParseSingleBp(path);
       } catch (const std::exception& e) {
@@ -200,23 +200,23 @@ bool BpEngine::ParseBpFiles(const std::string& rootPath) {
   return true;
 }
 
-void BpEngine::ParseBpDirectory(const std::string& dirPath) {
+void BpEngine::ParseBpDirectory(const std::string& dir_path) {
   // Walk the directory tree and parse all Android.bp files
-  for (auto& entry : fs::recursive_directory_iterator(dirPath)) {
+  for (auto& entry : fs::recursive_directory_iterator(dir_path)) {
     if (entry.path().filename() == "Android.bp") {
-      std::string entryStr = entry.path().string();
+      std::string entry_str = entry.path().string();
       // Skip common output/build directories
-      if (entryStr.find("/out/") != std::string::npos) continue;
-      if (entryStr.find("/bazel-") != std::string::npos) continue;
-      if (entryStr.find("/.git/") != std::string::npos) continue;
+      if (entry_str.find("/out/") != std::string::npos) continue;
+      if (entry_str.find("/bazel-") != std::string::npos) continue;
+      if (entry_str.find("/.git/") != std::string::npos) continue;
       try {
-        ParseSingleBp(entryStr);
+        ParseSingleBp(entry_str);
       } catch (const std::exception& e) {
         std::fprintf(stderr, "gor_make: [warning] error parsing %s: %s\n",
-                     entryStr.c_str(), e.what());
+                     entry_str.c_str(), e.what());
       } catch (...) {
         std::fprintf(stderr, "gor_make: [warning] unknown error parsing %s\n",
-                     entryStr.c_str());
+                     entry_str.c_str());
       }
     }
   }
@@ -224,9 +224,9 @@ void BpEngine::ParseBpDirectory(const std::string& dirPath) {
 
 bool BpEngine::ParseSingleBp(const std::string& path) {
   // Avoid parsing the same file twice
-  std::string absPath = fs::canonical(path).string();
-  if (parsedFiles_.count(absPath) > 0) return true;
-  parsedFiles_.insert(absPath);
+  std::string abs_path = fs::canonical(path).string();
+  if (parsed_files_.count(abs_path) > 0) return true;
+  parsed_files_.insert(abs_path);
 
   BpParser parser;
   BpFile result;
@@ -236,11 +236,11 @@ bool BpEngine::ParseSingleBp(const std::string& path) {
     return false;
   }
 
-  std::string srcDir = fs::path(path).parent_path().string();
-  if (srcDir.empty()) srcDir = ".";
+  std::string src_dir = fs::path(path).parent_path().string();
+  if (src_dir.empty()) src_dir = ".";
 
-  for (const auto& bpMod : result.modules) {
-    auto mod = ConvertModule(bpMod, srcDir);
+  for (const auto& bp_mod : result.modules) {
+    auto mod = ConvertModule(bp_mod, src_dir);
     if (mod) {
       const std::string& name = mod->name;
       if (modules_.count(name) > 0) {
@@ -252,39 +252,39 @@ bool BpEngine::ParseSingleBp(const std::string& path) {
     }
   }
 
-  bpFiles_.push_back(std::move(result));
+  bp_files_.push_back(std::move(result));
   return true;
 }
 
 std::unique_ptr<BpBuildModule> BpEngine::ConvertModule(
-    const BpModule& bpModule, const std::string& srcDir) {
+    const BpModule& bp_module, const std::string& src_dir) {
   auto mod = std::make_unique<BpBuildModule>();
-  mod->type = bpModule.type;
-  mod->srcDir = srcDir;
+  mod->type = bp_module.type;
+  mod->src_dir = src_dir;
 
   // Get name
-  auto nameIt = bpModule.properties.find("name");
-  if (nameIt == bpModule.properties.end() || !nameIt->second.IsString()) {
+  auto name_it = bp_module.properties.find("name");
+  if (name_it == bp_module.properties.end() || !name_it->second.IsString()) {
     // Silently skip non-buildable module types that don't have names
     // (package, license, license_kind, etc.)
     return nullptr;
   }
-  mod->name = nameIt->second.AsString();
+  mod->name = name_it->second.AsString();
 
   // Set module type flags based on type
-  const std::string& t = bpModule.type;
+  const std::string& t = bp_module.type;
   if (t == "cc_binary" || t == "cc_test_binary") {
-    mod->isBinary = true;
-    if (t == "cc_test_binary") mod->isTest = true;
+    mod->is_binary = true;
+    if (t == "cc_test_binary") mod->is_test = true;
   } else if (t == "cc_library" || t == "cc_library_shared") {
-    mod->isShared = true;
+    mod->is_shared = true;
   } else if (t == "cc_library_static") {
-    mod->isStatic = true;
+    mod->is_static = true;
   } else if (t == "cc_test") {
-    mod->isTest = true;
-    mod->isBinary = true;
+    mod->is_test = true;
+    mod->is_binary = true;
   } else if (t == "cc_benchmark") {
-    mod->isBinary = true;
+    mod->is_binary = true;
   } else if (t == "genrule") {
     // Handle genrule
   } else if (t == "cc_defaults" || t == "filegroup" ||
@@ -309,92 +309,92 @@ std::unique_ptr<BpBuildModule> BpEngine::ConvertModule(
   // For any other unknown type, keep the module but don't set flags
 
   // Extract properties
-  auto it = bpModule.properties.find("srcs");
-  if (it != bpModule.properties.end()) {
-    mod->srcs = ResolveSrcs(it->second, srcDir);
+  auto it = bp_module.properties.find("srcs");
+  if (it != bp_module.properties.end()) {
+    mod->srcs = ResolveSrcs(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("shared_libs");
-  if (it != bpModule.properties.end()) {
-    mod->sharedLibs = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("shared_libs");
+  if (it != bp_module.properties.end()) {
+    mod->shared_libs = GetStringList(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("static_libs");
-  if (it != bpModule.properties.end()) {
-    mod->staticLibs = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("static_libs");
+  if (it != bp_module.properties.end()) {
+    mod->static_libs = GetStringList(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("whole_static_libs");
-  if (it != bpModule.properties.end()) {
-    mod->wholeStaticLibs = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("whole_static_libs");
+  if (it != bp_module.properties.end()) {
+    mod->whole_static_libs = GetStringList(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("header_libs");
-  if (it != bpModule.properties.end()) {
-    mod->headerLibs = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("header_libs");
+  if (it != bp_module.properties.end()) {
+    mod->header_libs = GetStringList(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("cflags");
-  if (it != bpModule.properties.end()) {
-    mod->cflags = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("cflags");
+  if (it != bp_module.properties.end()) {
+    mod->cflags = GetStringList(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("cppflags");
-  if (it != bpModule.properties.end()) {
-    mod->cppflags = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("cppflags");
+  if (it != bp_module.properties.end()) {
+    mod->cppflags = GetStringList(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("ldflags");
-  if (it != bpModule.properties.end()) {
-    mod->ldflags = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("ldflags");
+  if (it != bp_module.properties.end()) {
+    mod->ldflags = GetStringList(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("include_dirs");
-  if (it != bpModule.properties.end()) {
-    mod->includeDirs = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("include_dirs");
+  if (it != bp_module.properties.end()) {
+    mod->include_dirs = GetStringList(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("local_include_dirs");
-  if (it != bpModule.properties.end()) {
-    mod->localIncludeDirs = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("local_include_dirs");
+  if (it != bp_module.properties.end()) {
+    mod->local_include_dirs = GetStringList(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("export_include_dirs");
-  if (it != bpModule.properties.end()) {
-    mod->exportIncludeDirs = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("export_include_dirs");
+  if (it != bp_module.properties.end()) {
+    mod->export_include_dirs = GetStringList(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("system_shared_libs");
-  if (it != bpModule.properties.end()) {
-    mod->systemSharedLibs = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("system_shared_libs");
+  if (it != bp_module.properties.end()) {
+    mod->system_shared_libs = GetStringList(it->second, src_dir);
   }
 
-  it = bpModule.properties.find("stl");
-  if (it != bpModule.properties.end() && it->second.IsString()) {
+  it = bp_module.properties.find("stl");
+  if (it != bp_module.properties.end() && it->second.IsString()) {
     mod->stl = it->second.AsString();
   }
 
   // Genrule properties
-  it = bpModule.properties.find("cmd");
-  if (it != bpModule.properties.end() && it->second.IsString()) {
-    mod->genCmd = it->second.AsString();
+  it = bp_module.properties.find("cmd");
+  if (it != bp_module.properties.end() && it->second.IsString()) {
+    mod->gen_cmd = it->second.AsString();
   }
 
-  it = bpModule.properties.find("out");
-  if (it != bpModule.properties.end()) {
-    mod->genOut = GetStringList(it->second, srcDir);
+  it = bp_module.properties.find("out");
+  if (it != bp_module.properties.end()) {
+    mod->gen_out = GetStringList(it->second, src_dir);
   }
 
   return mod;
 }
 
 std::vector<std::string> BpEngine::GetStringList(const BpValue& val,
-                                                  const std::string& srcDir) {
+                                                  const std::string& src_dir) {
   std::vector<std::string> result;
   if (val.IsString()) {
     result.push_back(val.AsString());
   } else if (val.IsList()) {
-    for (const auto& item : val.listVal) {
+    for (const auto& item : val.list_val) {
       if (item.IsString()) {
         result.push_back(item.AsString());
       }
@@ -404,7 +404,7 @@ std::vector<std::string> BpEngine::GetStringList(const BpValue& val,
 }
 
 std::vector<std::string> BpEngine::ResolveSrcs(const BpValue& val,
-                                                const std::string& srcDir) {
+                                                const std::string& src_dir) {
   std::vector<std::string> result;
   if (val.IsString()) {
     // Single source file
@@ -414,23 +414,23 @@ std::vector<std::string> BpEngine::ResolveSrcs(const BpValue& val,
       BpParser parser;
       auto expanded = parser.ExpandGlob(s);
       for (const auto& e : expanded) {
-        result.push_back(srcDir + "/" + e);
+        result.push_back(src_dir + "/" + e);
       }
     } else {
-      result.push_back(srcDir + "/" + s);
+      result.push_back(src_dir + "/" + s);
     }
   } else if (val.IsList()) {
-    for (const auto& item : val.listVal) {
+    for (const auto& item : val.list_val) {
       if (item.IsString()) {
         std::string s = item.AsString();
         if (s.find('*') != std::string::npos) {
           BpParser parser;
           auto expanded = parser.ExpandGlob(s);
           for (const auto& e : expanded) {
-            result.push_back(srcDir + "/" + e);
+            result.push_back(src_dir + "/" + e);
           }
         } else {
-          result.push_back(srcDir + "/" + s);
+          result.push_back(src_dir + "/" + s);
         }
       }
     }
@@ -440,11 +440,11 @@ std::vector<std::string> BpEngine::ResolveSrcs(const BpValue& val,
 
 void BpEngine::ApplyDefaults() {
   // Build a map of defaults name -> BpModule*
-  std::map<std::string, const BpModule*> defaultsMap;
-  for (const auto& bpFile : bpFiles_) {
-    for (const auto& mod : bpFile.modules) {
+  std::map<std::string, const BpModule*> defaults_map;
+  for (const auto& bp_file : bp_files_) {
+    for (const auto& mod : bp_file.modules) {
       if (mod.type == "cc_defaults") {
-        defaultsMap[mod.name] = &mod;
+        defaults_map[mod.name] = &mod;
       }
     }
   }
@@ -452,15 +452,15 @@ void BpEngine::ApplyDefaults() {
   // Apply defaults to each build module
   for (const auto& [name, mod] : modules_) {
     // Find the original BpModule to get its defaults list
-    for (const auto& bpFile : bpFiles_) {
-      for (const auto& bpMod : bpFile.modules) {
-        if (bpMod.name == name) {
-          auto defaultsIt = bpMod.properties.find("defaults");
-          if (defaultsIt != bpMod.properties.end() && defaultsIt->second.IsList()) {
-            for (const auto& d : defaultsIt->second.listVal) {
+    for (const auto& bp_file : bp_files_) {
+      for (const auto& bp_mod : bp_file.modules) {
+        if (bp_mod.name == name) {
+          auto defaults_it = bp_mod.properties.find("defaults");
+          if (defaults_it != bp_mod.properties.end() && defaults_it->second.IsList()) {
+            for (const auto& d : defaults_it->second.list_val) {
               if (d.IsString()) {
-                auto dit = defaultsMap.find(d.AsString());
-                if (dit != defaultsMap.end()) {
+                auto dit = defaults_map.find(d.AsString());
+                if (dit != defaults_map.end()) {
                   ApplyDefaultsToModule(*dit->second, mod.get());
                 }
               }
@@ -476,38 +476,38 @@ void BpEngine::ApplyDefaultsToModule(const BpModule& defaults,
                                       BpBuildModule* module) {
   // Apply defaults properties, but only for properties that aren't already set
   // in the module (module-specific values take precedence).
-  auto applyList = [&](const char* prop, std::vector<std::string>* target) {
+  auto apply_list = [&](const char* prop, std::vector<std::string>* target) {
     if (!target->empty()) return;  // Already set by module
     auto it = defaults.properties.find(prop);
     if (it != defaults.properties.end()) {
-      *target = GetStringList(it->second, module->srcDir);
+      *target = GetStringList(it->second, module->src_dir);
     }
   };
 
-  applyList("cflags", &module->cflags);
-  applyList("cppflags", &module->cppflags);
-  applyList("ldflags", &module->ldflags);
-  applyList("include_dirs", &module->includeDirs);
-  applyList("local_include_dirs", &module->localIncludeDirs);
-  applyList("export_include_dirs", &module->exportIncludeDirs);
-  applyList("system_shared_libs", &module->systemSharedLibs);
+  apply_list("cflags", &module->cflags);
+  apply_list("cppflags", &module->cppflags);
+  apply_list("ldflags", &module->ldflags);
+  apply_list("include_dirs", &module->include_dirs);
+  apply_list("local_include_dirs", &module->local_include_dirs);
+  apply_list("export_include_dirs", &module->export_include_dirs);
+  apply_list("system_shared_libs", &module->system_shared_libs);
   
   // For srcs, shared_libs, static_libs — always prepend defaults
   // (these are additive in Blueprint semantics)
-  auto prependList = [&](const char* prop, std::vector<std::string>* target) {
+  auto prepend_list = [&](const char* prop, std::vector<std::string>* target) {
     auto it = defaults.properties.find(prop);
     if (it != defaults.properties.end()) {
-      auto defaultsList = GetStringList(it->second, module->srcDir);
-      std::vector<std::string> combined = defaultsList;
+      auto defaults_list = GetStringList(it->second, module->src_dir);
+      std::vector<std::string> combined = defaults_list;
       combined.insert(combined.end(), target->begin(), target->end());
       *target = combined;
     }
   };
-  prependList("srcs", &module->srcs);
-  prependList("shared_libs", &module->sharedLibs);
-  prependList("static_libs", &module->staticLibs);
-  prependList("whole_static_libs", &module->wholeStaticLibs);
-  prependList("header_libs", &module->headerLibs);
+  prepend_list("srcs", &module->srcs);
+  prepend_list("shared_libs", &module->shared_libs);
+  prepend_list("static_libs", &module->static_libs);
+  prepend_list("whole_static_libs", &module->whole_static_libs);
+  prepend_list("header_libs", &module->header_libs);
 }
 
 BpBuildModule* BpEngine::FindModule(const std::string& name) {
@@ -534,10 +534,10 @@ bool BpEngine::BuildModule(const std::string& name,
   if (!mod) {
     // Might be a system library
     struct stat st;
-    std::string libPath = "lib" + name + ".so";
-    if (stat(("/usr/lib/" + libPath).c_str(), &st) == 0 ||
-        stat(("/usr/lib/x86_64-linux-gnu/" + libPath).c_str(), &st) == 0 ||
-        stat(("/lib/x86_64-linux-gnu/" + libPath).c_str(), &st) == 0) {
+    std::string lib_path = "lib" + name + ".so";
+    if (stat(("/usr/lib/" + lib_path).c_str(), &st) == 0 ||
+        stat(("/usr/lib/x86_64-linux-gnu/" + lib_path).c_str(), &st) == 0 ||
+        stat(("/lib/x86_64-linux-gnu/" + lib_path).c_str(), &st) == 0) {
       visited.insert(name);
       return true;
     }
@@ -548,26 +548,26 @@ bool BpEngine::BuildModule(const std::string& name,
   building.insert(name);
 
   // Build static library dependencies first
-  for (const auto& dep : mod->staticLibs) {
+  for (const auto& dep : mod->static_libs) {
     if (!BuildModule(dep, visited, building)) {
       building.erase(name);
-      if (!opts_->keepGoing) return false;
+      if (!opts_->keep_going) return false;
     }
   }
 
   // Build whole static library dependencies
-  for (const auto& dep : mod->wholeStaticLibs) {
+  for (const auto& dep : mod->whole_static_libs) {
     if (!BuildModule(dep, visited, building)) {
       building.erase(name);
-      if (!opts_->keepGoing) return false;
+      if (!opts_->keep_going) return false;
     }
   }
 
   // Build shared library dependencies first
-  for (const auto& dep : mod->sharedLibs) {
+  for (const auto& dep : mod->shared_libs) {
     if (!BuildModule(dep, visited, building)) {
       building.erase(name);
-      if (!opts_->keepGoing) return false;
+      if (!opts_->keep_going) return false;
     }
   }
 
@@ -593,95 +593,95 @@ bool BpEngine::BuildModule(const std::string& name,
 
 bool BpEngine::CompileModule(BpBuildModule* module) {
   // Create output directory
-  std::string objDir = opts_->buildDir + "/obj/" + module->name;
-  if (!opts_->dryRun) buildutil::MkdirP(objDir);
+  std::string obj_dir = opts_->build_dir + "/obj/" + module->name;
+  if (!opts_->dry_run) buildutil::MkdirP(obj_dir);
 
   // Collect include directories
-  std::vector<std::string> allIncludeDirs = module->includeDirs;
-  for (const auto& d : module->localIncludeDirs) {
-    allIncludeDirs.push_back(d);
+  std::vector<std::string> all_include_dirs = module->include_dirs;
+  for (const auto& d : module->local_include_dirs) {
+    all_include_dirs.push_back(d);
   }
 
   // Add include dirs from dependency modules (export_include_dirs)
-  for (const auto& dep : module->staticLibs) {
-    BpBuildModule* depMod = FindModule(dep);
-    if (depMod) {
-      for (const auto& d : depMod->exportIncludeDirs) {
-        allIncludeDirs.push_back(depMod->srcDir + "/" + d);
+  for (const auto& dep : module->static_libs) {
+    BpBuildModule* dep_mod = FindModule(dep);
+    if (dep_mod) {
+      for (const auto& d : dep_mod->export_include_dirs) {
+        all_include_dirs.push_back(dep_mod->src_dir + "/" + d);
       }
     }
   }
-  for (const auto& dep : module->sharedLibs) {
-    BpBuildModule* depMod = FindModule(dep);
-    if (depMod) {
-      for (const auto& d : depMod->exportIncludeDirs) {
-        allIncludeDirs.push_back(depMod->srcDir + "/" + d);
+  for (const auto& dep : module->shared_libs) {
+    BpBuildModule* dep_mod = FindModule(dep);
+    if (dep_mod) {
+      for (const auto& d : dep_mod->export_include_dirs) {
+        all_include_dirs.push_back(dep_mod->src_dir + "/" + d);
       }
     }
   }
 
   // Compile each source file
-  module->objectFiles.clear();
+  module->object_files.clear();
 
   for (const auto& src : module->srcs) {
-    std::string srcPath = src;
-    if (srcPath[0] != '/' && srcPath.substr(0, 2) != "./") {
-      srcPath = module->srcDir + "/" + src;
+    std::string src_path = src;
+    if (src_path[0] != '/' && src_path.substr(0, 2) != "./") {
+      src_path = module->src_dir + "/" + src;
     }
 
-    if (!buildutil::FileExists(srcPath)) {
-      fprintf(stderr, "gor_make: *** Source file not found: %s\n", srcPath.c_str());
+    if (!buildutil::FileExists(src_path)) {
+      fprintf(stderr, "gor_make: *** Source file not found: %s\n", src_path.c_str());
       return false;
     }
 
-    std::string objPath = GetObjectPath(*module, src);
+    std::string obj_path = GetObjectPath(*module, src);
 
     // Check if recompilation is needed
-    bool needCompile = opts_->dryRun ? false : true;
-    if (!needCompile) {
+    bool need_compile = opts_->dry_run ? false : true;
+    if (!need_compile) {
       // In dry-run mode, still show commands
     } else {
-      needCompile = !buildutil::FileExists(objPath);
-      if (!needCompile) {
-        needCompile = GetMtime(srcPath) > GetMtime(objPath);
+      need_compile = !buildutil::FileExists(obj_path);
+      if (!need_compile) {
+        need_compile = GetMtime(src_path) > GetMtime(obj_path);
       }
     }
 
-    if (needCompile || opts_->dryRun) {
+    if (need_compile || opts_->dry_run) {
       // Choose compiler based on file type
-      std::string compiler = buildutil::IsCppSource(srcPath) ? cxx_ : cc_;
+      std::string compiler = buildutil::IsCppSource(src_path) ? cxx_ : cc_;
 
       // Build command
       std::string cmd = compiler + " -MMD -MP -c";
 
       // Add cflags
-      for (const auto& f : commonCflags_) {
+      for (const auto& f : common_cflags_) {
         cmd += " " + f;
       }
       for (const auto& f : module->cflags) {
         cmd += " " + f;
       }
-      if (buildutil::IsCppSource(srcPath)) {
+      if (buildutil::IsCppSource(src_path)) {
         for (const auto& f : module->cppflags) {
           cmd += " " + f;
         }
       }
 
       // Add include directories
-      for (const auto& d : allIncludeDirs) {
+      for (const auto& d : all_include_dirs) {
         cmd += " -I" + d;
       }
 
       // Add source and output
-      cmd += " -o " + objPath + " " + srcPath;
+      cmd += " -o " + obj_path + " " + src_path;
 
-      if (!ExecuteCmd(cmd, module->isTest && opts_->silent)) {
-        fprintf(stderr, "gor_make: *** Compilation failed for %s\n", srcPath.c_str());
+      if (!ExecuteCmd(cmd, module->is_test && opts_->silent)) {
+        fprintf(stderr, "gor_make: *** Compilation failed for %s\n", src_path.c_str());
         return false;
       }
     }
 
-    module->objectFiles.push_back(objPath);
+    module->object_files.push_back(obj_path);
   }
 
   return true;
@@ -696,38 +696,38 @@ static std::string StripLibPrefix(const std::string& name) {
 }
 
 bool BpEngine::LinkModule(BpBuildModule* module) {
-  if (module->objectFiles.empty()) return true;
+  if (module->object_files.empty()) return true;
 
-  std::string outPath = GetOutputPath(*module);
-  if (!opts_->dryRun) buildutil::MkdirP(buildutil::DirName(outPath));
+  std::string out_path = GetOutputPath(*module);
+  if (!opts_->dry_run) buildutil::MkdirP(buildutil::DirName(out_path));
 
-  if (module->isStatic) {
+  if (module->is_static) {
     // Create static library with ar
-    std::string cmd = ar_ + " rcs " + outPath;
-    for (const auto& obj : module->objectFiles) {
+    std::string cmd = ar_ + " rcs " + out_path;
+    for (const auto& obj : module->object_files) {
       cmd += " " + obj;
     }
 
     // Check if relink needed
-    bool needLink = !buildutil::FileExists(outPath);
-    if (!needLink && !opts_->dryRun) {
-      for (const auto& obj : module->objectFiles) {
-        if (GetMtime(obj) > GetMtime(outPath)) {
-          needLink = true;
+    bool need_link = !buildutil::FileExists(out_path);
+    if (!need_link && !opts_->dry_run) {
+      for (const auto& obj : module->object_files) {
+        if (GetMtime(obj) > GetMtime(out_path)) {
+          need_link = true;
           break;
         }
       }
     }
 
-    if (needLink || opts_->dryRun) {
+    if (need_link || opts_->dry_run) {
       if (!ExecuteCmd(cmd, opts_->silent)) {
-        fprintf(stderr, "gor_make: *** Archiving failed for %s\n", outPath.c_str());
+        fprintf(stderr, "gor_make: *** Archiving failed for %s\n", out_path.c_str());
         return false;
       }
     }
   } else {
     // Link binary or shared library
-    std::string linker = module->isBinary ? cxx_ : cxx_;
+    std::string linker = module->is_binary ? cxx_ : cxx_;
     std::string cmd = linker;
 
     // Add ldflags
@@ -736,34 +736,34 @@ bool BpEngine::LinkModule(BpBuildModule* module) {
     }
 
     // Add object files
-    for (const auto& obj : module->objectFiles) {
+    for (const auto& obj : module->object_files) {
       cmd += " " + obj;
     }
 
     // Add static libraries from dependencies
-    for (const auto& dep : module->staticLibs) {
-      BpBuildModule* depMod = FindModule(dep);
-      if (depMod) {
-        cmd += " " + GetOutputPath(*depMod);
+    for (const auto& dep : module->static_libs) {
+      BpBuildModule* dep_mod = FindModule(dep);
+      if (dep_mod) {
+        cmd += " " + GetOutputPath(*dep_mod);
       }
     }
 
     // Add whole static libraries
-    for (const auto& dep : module->wholeStaticLibs) {
-      BpBuildModule* depMod = FindModule(dep);
-      if (depMod) {
-        cmd += " -Wl,--whole-archive " + GetOutputPath(*depMod) + " -Wl,--no-whole-archive";
+    for (const auto& dep : module->whole_static_libs) {
+      BpBuildModule* dep_mod = FindModule(dep);
+      if (dep_mod) {
+        cmd += " -Wl,--whole-archive " + GetOutputPath(*dep_mod) + " -Wl,--no-whole-archive";
       }
     }
 
     // Add shared library flags
-    for (const auto& dep : module->sharedLibs) {
-      BpBuildModule* depMod = FindModule(dep);
-      if (depMod) {
+    for (const auto& dep : module->shared_libs) {
+      BpBuildModule* dep_mod = FindModule(dep);
+      if (dep_mod) {
         // Link against the shared library
-        std::string depOut = GetOutputPath(*depMod);
-        std::string depDir = buildutil::DirName(depOut);
-        cmd += " -L" + depDir + " -l" + StripLibPrefix(depMod->name);
+        std::string dep_out = GetOutputPath(*dep_mod);
+        std::string dep_dir = buildutil::DirName(dep_out);
+        cmd += " -L" + dep_dir + " -l" + StripLibPrefix(dep_mod->name);
       } else {
         // System library
         cmd += " -l" + StripLibPrefix(dep);
@@ -771,28 +771,28 @@ bool BpEngine::LinkModule(BpBuildModule* module) {
     }
 
     // Add output path
-    if (module->isShared) {
-      cmd += " -shared -o " + outPath;
+    if (module->is_shared) {
+      cmd += " -shared -o " + out_path;
     } else {
-      cmd += " -o " + outPath;
+      cmd += " -o " + out_path;
     }
 
     // Check if relink needed
-    bool needLink = !buildutil::FileExists(outPath);
-    if (!needLink && !opts_->dryRun) {
-      for (const auto& obj : module->objectFiles) {
-        if (GetMtime(obj) > GetMtime(outPath)) {
-          needLink = true;
+    bool need_link = !buildutil::FileExists(out_path);
+    if (!need_link && !opts_->dry_run) {
+      for (const auto& obj : module->object_files) {
+        if (GetMtime(obj) > GetMtime(out_path)) {
+          need_link = true;
           break;
         }
       }
       // Also check dependency outputs
-      if (!needLink) {
-        for (const auto& dep : module->staticLibs) {
-          BpBuildModule* depMod = FindModule(dep);
-          if (depMod) {
-            if (GetMtime(GetOutputPath(*depMod)) > GetMtime(outPath)) {
-              needLink = true;
+      if (!need_link) {
+        for (const auto& dep : module->static_libs) {
+          BpBuildModule* dep_mod = FindModule(dep);
+          if (dep_mod) {
+            if (GetMtime(GetOutputPath(*dep_mod)) > GetMtime(out_path)) {
+              need_link = true;
               break;
             }
           }
@@ -800,42 +800,42 @@ bool BpEngine::LinkModule(BpBuildModule* module) {
       }
     }
 
-    if (needLink || opts_->dryRun) {
+    if (need_link || opts_->dry_run) {
       if (!ExecuteCmd(cmd, opts_->silent)) {
-        fprintf(stderr, "gor_make: *** Linking failed for %s\n", outPath.c_str());
+        fprintf(stderr, "gor_make: *** Linking failed for %s\n", out_path.c_str());
         return false;
       }
     }
   }
 
-  module->outputFile = outPath;
+  module->output_file = out_path;
   return true;
 }
 
 bool BpEngine::BuildGenrule(BpBuildModule* module) {
-  if (module->genCmd.empty()) return true;
+  if (module->gen_cmd.empty()) return true;
 
-  std::string outDir = opts_->buildDir + "/gen/" + module->name;
-  if (!opts_->dryRun) buildutil::MkdirP(outDir);
+  std::string out_dir = opts_->build_dir + "/gen/" + module->name;
+  if (!opts_->dry_run) buildutil::MkdirP(out_dir);
 
   // Simplified genrule: replace $(in) and $(out)
-  std::string cmd = module->genCmd;
+  std::string cmd = module->gen_cmd;
   // Replace $(in) with source files
-  std::string inFiles = Join(module->srcs, " ");
+  std::string in_files = Join(module->srcs, " ");
   size_t pos = cmd.find("$(in)");
   while (pos != std::string::npos) {
-    cmd.replace(pos, 5, inFiles);
+    cmd.replace(pos, 5, in_files);
     pos = cmd.find("$(in)");
   }
   // Replace $(out) with output files
-  std::vector<std::string> outPaths;
-  for (const auto& out : module->genOut) {
-    outPaths.push_back(outDir + "/" + out);
+  std::vector<std::string> out_paths;
+  for (const auto& out : module->gen_out) {
+    out_paths.push_back(out_dir + "/" + out);
   }
-  std::string outFiles = Join(outPaths, " ");
+  std::string out_files = Join(out_paths, " ");
   pos = cmd.find("$(out)");
   while (pos != std::string::npos) {
-    cmd.replace(pos, 6, outFiles);
+    cmd.replace(pos, 6, out_files);
     pos = cmd.find("$(out)");
   }
 
@@ -844,62 +844,62 @@ bool BpEngine::BuildGenrule(BpBuildModule* module) {
     return false;
   }
 
-  module->objectFiles = outPaths;
-  module->outputFile = outPaths.empty() ? "" : outPaths[0];
+  module->object_files = out_paths;
+  module->output_file = out_paths.empty() ? "" : out_paths[0];
   return true;
 }
 
 void BpEngine::Clean() {
-  if (buildutil::FileExists(opts_->buildDir)) {
-    fs::remove_all(opts_->buildDir);
-    printf("Cleaned %s\n", opts_->buildDir.c_str());
+  if (buildutil::FileExists(opts_->build_dir)) {
+    fs::remove_all(opts_->build_dir);
+    printf("Cleaned %s\n", opts_->build_dir.c_str());
   }
 }
 
 std::string BpEngine::GetOutputPath(const BpBuildModule& module) const {
-  std::string fileName = module.name;
+  std::string file_name = module.name;
   // Only add "lib" prefix if the name doesn't already start with "lib"
-  bool needsLibPrefix = !(fileName.size() >= 3 &&
-                          fileName.substr(0, 3) == "lib");
-  std::string libPrefix = needsLibPrefix ? "lib" : "";
+  bool needs_lib_prefix = !(file_name.size() >= 3 &&
+                          file_name.substr(0, 3) == "lib");
+  std::string lib_prefix = needs_lib_prefix ? "lib" : "";
 
-  if (module.isStatic) {
-    return opts_->buildDir + "/lib/" + libPrefix + fileName + ".a";
+  if (module.is_static) {
+    return opts_->build_dir + "/lib/" + lib_prefix + file_name + ".a";
   }
-  if (module.isShared) {
-    return opts_->buildDir + "/lib/" + libPrefix + fileName + ".so";
+  if (module.is_shared) {
+    return opts_->build_dir + "/lib/" + lib_prefix + file_name + ".so";
   }
   // Binary
-  return opts_->buildDir + "/bin/" + fileName;
+  return opts_->build_dir + "/bin/" + file_name;
 }
 
 std::string BpEngine::GetObjectPath(const BpBuildModule& module,
-                                     const std::string& srcFile) const {
-  std::string baseName = buildutil::BaseName(srcFile);
-  return opts_->buildDir + "/obj/" + module.name + "/" +
-         ReplaceExt(baseName, ".o");
+                                     const std::string& src_file) const {
+  std::string base_name = buildutil::BaseName(src_file);
+  return opts_->build_dir + "/obj/" + module.name + "/" +
+         ReplaceExt(base_name, ".o");
 }
 
-bool BpEngine::NeedsRecompile(const std::string& objFile,
-                              const std::string& srcFile,
+bool BpEngine::NeedsRecompile(const std::string& obj_file,
+                              const std::string& src_file,
                               const std::vector<std::string>& headers) const {
-  if (buildutil::NeedsRecompile(objFile, srcFile)) return true;
-  long objMtime = GetMtime(objFile);
+  if (buildutil::NeedsRecompile(obj_file, src_file)) return true;
+  long obj_mtime = GetMtime(obj_file);
   for (const auto& h : headers) {
-    if (GetMtime(h) > objMtime) return true;
+    if (GetMtime(h) > obj_mtime) return true;
   }
   return false;
 }
 
 bool BpEngine::ExecuteCmd(const std::string& cmd, bool silent) {
-  if (!opts_->dryRun || !opts_->silent) {
-    if (!silent || opts_->dryRun) {
+  if (!opts_->dry_run || !opts_->silent) {
+    if (!silent || opts_->dry_run) {
       printf("%s\n", cmd.c_str());
       fflush(stdout);
     }
   }
 
-  if (opts_->dryRun) {
+  if (opts_->dry_run) {
     return true;  // Don't actually execute
   }
 
@@ -954,30 +954,30 @@ void BpEngine::OutputJson() const {
     printf("    {\n");
     printf("      \"name\": \"%s\",\n", JsonEscape(mod->name).c_str());
     printf("      \"type\": \"%s\",\n", JsonEscape(mod->type).c_str());
-    printf("      \"src_dir\": \"%s\",\n", JsonEscape(mod->srcDir).c_str());
-    printf("      \"is_binary\": %s,\n", mod->isBinary ? "true" : "false");
-    printf("      \"is_static\": %s,\n", mod->isStatic ? "true" : "false");
-    printf("      \"is_shared\": %s,\n", mod->isShared ? "true" : "false");
-    printf("      \"is_test\": %s,\n", mod->isTest ? "true" : "false");
+    printf("      \"src_dir\": \"%s\",\n", JsonEscape(mod->src_dir).c_str());
+    printf("      \"is_binary\": %s,\n", mod->is_binary ? "true" : "false");
+    printf("      \"is_static\": %s,\n", mod->is_static ? "true" : "false");
+    printf("      \"is_shared\": %s,\n", mod->is_shared ? "true" : "false");
+    printf("      \"is_test\": %s,\n", mod->is_test ? "true" : "false");
 
     printf("      \"srcs\": ");
     OutputJsonArray(stdout, "      ", mod->srcs);
     printf(",\n");
 
     printf("      \"shared_libs\": ");
-    OutputJsonArray(stdout, "      ", mod->sharedLibs);
+    OutputJsonArray(stdout, "      ", mod->shared_libs);
     printf(",\n");
 
     printf("      \"static_libs\": ");
-    OutputJsonArray(stdout, "      ", mod->staticLibs);
+    OutputJsonArray(stdout, "      ", mod->static_libs);
     printf(",\n");
 
     printf("      \"whole_static_libs\": ");
-    OutputJsonArray(stdout, "      ", mod->wholeStaticLibs);
+    OutputJsonArray(stdout, "      ", mod->whole_static_libs);
     printf(",\n");
 
     printf("      \"header_libs\": ");
-    OutputJsonArray(stdout, "      ", mod->headerLibs);
+    OutputJsonArray(stdout, "      ", mod->header_libs);
     printf(",\n");
 
     printf("      \"cflags\": ");
@@ -993,15 +993,15 @@ void BpEngine::OutputJson() const {
     printf(",\n");
 
     printf("      \"include_dirs\": ");
-    OutputJsonArray(stdout, "      ", mod->includeDirs);
+    OutputJsonArray(stdout, "      ", mod->include_dirs);
     printf(",\n");
 
     printf("      \"local_include_dirs\": ");
-    OutputJsonArray(stdout, "      ", mod->localIncludeDirs);
+    OutputJsonArray(stdout, "      ", mod->local_include_dirs);
     printf(",\n");
 
     printf("      \"export_include_dirs\": ");
-    OutputJsonArray(stdout, "      ", mod->exportIncludeDirs);
+    OutputJsonArray(stdout, "      ", mod->export_include_dirs);
     printf("\n");
 
     printf("    }");

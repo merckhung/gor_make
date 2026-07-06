@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef GORMAKE_LIBGORMAKE_BPPARSER_H_
-#define GORMAKE_LIBGORMAKE_BPPARSER_H_
+#ifndef GORMAKE_LIBGORMAKE_BP_PARSER_H_
+#define GORMAKE_LIBGORMAKE_BP_PARSER_H_
 
 #include <cstdint>
 #include <map>
@@ -30,11 +30,11 @@ struct BpValue {
   enum Type { STRING, INT, BOOL, LIST, MAP, NONE };
 
   Type type = NONE;
-  std::string strVal;
-  int64_t intVal = 0;
-  bool boolVal = false;
-  std::vector<BpValue> listVal;
-  std::map<std::string, BpValue> mapVal;
+  std::string str_val;
+  int64_t int_val = 0;
+  bool bool_val = false;
+  std::vector<BpValue> list_val;
+  std::map<std::string, BpValue> map_val;
 
   // Helpers
   bool IsString() const { return type == STRING; }
@@ -193,4 +193,4 @@ class BpParser {
 
 }  // namespace gormake
 
-#endif  // GORMAKE_LIBGORMAKE_BPPARSER_H_
+#endif  // GORMAKE_LIBGORMAKE_BP_PARSER_H_

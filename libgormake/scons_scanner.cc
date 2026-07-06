@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#include "sconscanner.h"
-#include "buildenginebase.h"
+#include "scons_scanner.h"
+#include "build_engine_base.h"
 
 #include <cctype>
 #include <cstdio>
@@ -48,19 +48,19 @@ static std::string Trim(const std::string& s) {
 static std::string StripComment(const std::string& line) {
   // SCons files use Python syntax: # comments
   std::string result;
-  bool inString = false;
-  char stringChar = 0;
+  bool in_string = false;
+  char string_char = 0;
   for (size_t i = 0; i < line.size(); ++i) {
     char c = line[i];
-    if (inString) {
+    if (in_string) {
       result += c;
-      if (c == stringChar && (i == 0 || line[i - 1] != '\\'))
-        inString = false;
+      if (c == string_char && (i == 0 || line[i - 1] != '\\'))
+        in_string = false;
     } else {
       if (c == '#') break;
       if (c == '"' || c == '\'') {
-        inString = true;
-        stringChar = c;
+        in_string = true;
+        string_char = c;
       }
       result += c;
     }
@@ -75,14 +75,14 @@ SconScanner::~SconScanner() {}
 
 bool SconScanner::ScanFile(const std::string& path) {
   // Avoid re-scanning the same file (prevents infinite recursion)
-  if (visitedFiles_.count(path) > 0) return true;
-  visitedFiles_.insert(path);
+  if (visited_files_.count(path) > 0) return true;
+  visited_files_.insert(path);
 
   std::ifstream file(path);
   if (!file.is_open()) return false;
 
-  currentPath_ = path;
-  currentSrcDir_ = buildutil::DirName(path);
+  current_path_ = path;
+  current_src_dir_ = buildutil::DirName(path);
 
   std::string line;
   while (std::getline(file, line)) {
@@ -92,23 +92,23 @@ bool SconScanner::ScanFile(const std::string& path) {
   return true;
 }
 
-void SconScanner::ScanDirectory(const std::string& dirPath) {
-  for (auto& entry : fs::recursive_directory_iterator(dirPath)) {
+void SconScanner::ScanDirectory(const std::string& dir_path) {
+  for (auto& entry : fs::recursive_directory_iterator(dir_path)) {
     std::string filename = entry.path().filename().string();
     if (filename == "SConstruct" || filename == "SConscript" ||
         filename == "SConscript.*") {
-      std::string entryStr = entry.path().string();
-      if (entryStr.find("/out/") != std::string::npos) continue;
-      if (entryStr.find("/build/") != std::string::npos) continue;
-      if (entryStr.find("/.git/") != std::string::npos) continue;
+      std::string entry_str = entry.path().string();
+      if (entry_str.find("/out/") != std::string::npos) continue;
+      if (entry_str.find("/build/") != std::string::npos) continue;
+      if (entry_str.find("/.git/") != std::string::npos) continue;
       try {
-        ScanFile(entryStr);
+        ScanFile(entry_str);
       } catch (const std::exception& e) {
         std::fprintf(stderr, "gor_make: [warning] error parsing %s: %s\n",
-                     entryStr.c_str(), e.what());
+                     entry_str.c_str(), e.what());
       } catch (...) {
         std::fprintf(stderr, "gor_make: [warning] unknown error parsing %s\n",
-                     entryStr.c_str());
+                     entry_str.c_str());
       }
     }
   }
@@ -152,21 +152,21 @@ std::string SconScanner::ExtractFuncName(const std::string& s) const {
 std::vector<std::string> SconScanner::ExtractStringArgs(const std::string& s) const {
   // Extract quoted string arguments from a function call
   std::vector<std::string> result;
-  bool inString = false;
-  char stringChar = 0;
+  bool in_string = false;
+  char string_char = 0;
   std::string current;
 
   for (size_t i = 0; i < s.size(); ++i) {
     char c = s[i];
-    if (!inString) {
+    if (!in_string) {
       if (c == '"' || c == '\'') {
-        inString = true;
-        stringChar = c;
+        in_string = true;
+        string_char = c;
         current.clear();
       }
     } else {
-      if (c == stringChar && (i == 0 || s[i - 1] != '\\')) {
-        inString = false;
+      if (c == string_char && (i == 0 || s[i - 1] != '\\')) {
+        in_string = false;
         result.push_back(current);
         current.clear();
       } else {
@@ -183,7 +183,7 @@ std::vector<std::string> SconScanner::ExtractList(const std::string& s) const {
 }
 
 bool SconScanner::MatchFunc(const std::string& line,
-                              const std::string& funcName,
+                              const std::string& func_name,
                               std::string* args) const {
   // Match patterns: FuncName(...), env.FuncName(...), envx.FuncName(...)
   std::string trimmed = Trim(StripComment(line));
@@ -191,32 +191,32 @@ bool SconScanner::MatchFunc(const std::string& line,
 
   // Find the function name
   std::string func = ExtractFuncName(trimmed);
-  if (func != funcName) return false;
+  if (func != func_name) return false;
 
   // Find the opening paren after the function name
-  size_t parenPos = trimmed.find('(');
-  if (parenPos == std::string::npos) return false;
+  size_t paren_pos = trimmed.find('(');
+  if (paren_pos == std::string::npos) return false;
 
   // Find matching closing paren
   int depth = 0;
-  size_t endPos = parenPos;
-  for (size_t i = parenPos; i < trimmed.size(); ++i) {
+  size_t end_pos = paren_pos;
+  for (size_t i = paren_pos; i < trimmed.size(); ++i) {
     if (trimmed[i] == '(') depth++;
     else if (trimmed[i] == ')') {
       depth--;
       if (depth == 0) {
-        endPos = i;
+        end_pos = i;
         break;
       }
     }
   }
 
-  *args = trimmed.substr(parenPos + 1, endPos - parenPos - 1);
+  *args = trimmed.substr(paren_pos + 1, end_pos - paren_pos - 1);
   return true;
 }
 
-void SconScanner::ProcessLine(const std::string& rawLine) {
-  std::string line = StripComment(rawLine);
+void SconScanner::ProcessLine(const std::string& raw_line) {
+  std::string line = StripComment(raw_line);
   std::string trimmed = Trim(line);
   if (trimmed.empty()) return;
 
@@ -240,15 +240,15 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
 
   // Source('file.cc', ...) — adds a source file to the current module
   if (MatchFunc(trimmed, "Source", &args)) {
-    auto stringArgs = ExtractStringArgs(args);
-    if (!stringArgs.empty()) {
+    auto string_args = ExtractStringArgs(args);
+    if (!string_args.empty()) {
       // Add to a "source" target
       SconTarget t;
-      t.name = stringArgs[0];
+      t.name = string_args[0];
       t.type = "source";
-      t.srcDir = currentSrcDir_;
-      t.path = currentPath_;
-      t.srcs.push_back(stringArgs[0]);
+      t.src_dir = current_src_dir_;
+      t.path = current_path_;
+      t.srcs.push_back(string_args[0]);
       targets_.push_back(t);
     }
     return;
@@ -256,15 +256,15 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
 
   // GTest('name', 'test.cc', ...) — test target
   if (MatchFunc(trimmed, "GTest", &args)) {
-    auto stringArgs = ExtractStringArgs(args);
-    if (!stringArgs.empty()) {
+    auto string_args = ExtractStringArgs(args);
+    if (!string_args.empty()) {
       SconTarget t;
-      t.name = stringArgs[0];
+      t.name = string_args[0];
       t.type = "gtest";
-      t.srcDir = currentSrcDir_;
-      t.path = currentPath_;
-      for (size_t i = 1; i < stringArgs.size(); ++i) {
-        t.srcs.push_back(stringArgs[i]);
+      t.src_dir = current_src_dir_;
+      t.path = current_path_;
+      for (size_t i = 1; i < string_args.size(); ++i) {
+        t.srcs.push_back(string_args[i]);
       }
       targets_.push_back(t);
     }
@@ -273,13 +273,13 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
 
   // SimObject('file.py', ...) — Python sim object definition
   if (MatchFunc(trimmed, "SimObject", &args)) {
-    auto stringArgs = ExtractStringArgs(args);
-    if (!stringArgs.empty()) {
+    auto string_args = ExtractStringArgs(args);
+    if (!string_args.empty()) {
       SconTarget t;
-      t.name = stringArgs[0];
+      t.name = string_args[0];
       t.type = "simobject";
-      t.srcDir = currentSrcDir_;
-      t.path = currentPath_;
+      t.src_dir = current_src_dir_;
+      t.path = current_path_;
       targets_.push_back(t);
     }
     return;
@@ -287,29 +287,29 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
 
   // env.Library('name', [...sources...]) or env.Library(target='name', source=[...])
   if (MatchFunc(trimmed, "Library", &args)) {
-    auto stringArgs = ExtractStringArgs(args);
-    if (!stringArgs.empty()) {
+    auto string_args = ExtractStringArgs(args);
+    if (!string_args.empty()) {
       SconTarget t;
-      t.name = stringArgs[0];
+      t.name = string_args[0];
       t.type = "library";
-      t.srcDir = currentSrcDir_;
-      t.path = currentPath_;
+      t.src_dir = current_src_dir_;
+      t.path = current_path_;
       // Sources may be in a list or individual strings
-      for (size_t i = 1; i < stringArgs.size(); ++i) {
-        if (buildutil::IsCppSource(stringArgs[i]) || buildutil::IsCSource(stringArgs[i])) {
-          t.srcs.push_back(stringArgs[i]);
+      for (size_t i = 1; i < string_args.size(); ++i) {
+        if (buildutil::IsCppSource(string_args[i]) || buildutil::IsCSource(string_args[i])) {
+          t.srcs.push_back(string_args[i]);
         }
       }
       // Capture LIBS from keyword argument: LIBS=['math'] or LIBS=['math', 'foo']
-      size_t libsPos = args.find("LIBS");
-      if (libsPos != std::string::npos) {
+      size_t libs_pos = args.find("LIBS");
+      if (libs_pos != std::string::npos) {
         // Find the list after LIBS= (skip the = sign)
-        size_t eqPos = args.find('=', libsPos);
-        if (eqPos != std::string::npos) {
-          std::string libsPart = args.substr(eqPos + 1);
-          auto libs = ExtractStringArgs(libsPart);
+        size_t eq_pos = args.find('=', libs_pos);
+        if (eq_pos != std::string::npos) {
+          std::string libs_part = args.substr(eq_pos + 1);
+          auto libs = ExtractStringArgs(libs_part);
           for (const auto& lib : libs) {
-            t.linkLibs.push_back(lib);
+            t.link_libs.push_back(lib);
           }
         }
       }
@@ -320,28 +320,28 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
 
   // env.SharedLibrary('name', [...sources...])
   if (MatchFunc(trimmed, "SharedLibrary", &args)) {
-    auto stringArgs = ExtractStringArgs(args);
-    if (!stringArgs.empty()) {
+    auto string_args = ExtractStringArgs(args);
+    if (!string_args.empty()) {
       SconTarget t;
-      t.name = stringArgs[0];
+      t.name = string_args[0];
       t.type = "shared_library";
-      t.srcDir = currentSrcDir_;
-      t.path = currentPath_;
-      for (size_t i = 1; i < stringArgs.size(); ++i) {
-        if (buildutil::IsCppSource(stringArgs[i]) || buildutil::IsCSource(stringArgs[i])) {
-          t.srcs.push_back(stringArgs[i]);
+      t.src_dir = current_src_dir_;
+      t.path = current_path_;
+      for (size_t i = 1; i < string_args.size(); ++i) {
+        if (buildutil::IsCppSource(string_args[i]) || buildutil::IsCSource(string_args[i])) {
+          t.srcs.push_back(string_args[i]);
         }
       }
       // Capture LIBS from keyword argument: LIBS=['math'] or LIBS=['math', 'foo']
-      size_t libsPos = args.find("LIBS");
-      if (libsPos != std::string::npos) {
+      size_t libs_pos = args.find("LIBS");
+      if (libs_pos != std::string::npos) {
         // Find the list after LIBS= (skip the = sign)
-        size_t eqPos = args.find('=', libsPos);
-        if (eqPos != std::string::npos) {
-          std::string libsPart = args.substr(eqPos + 1);
-          auto libs = ExtractStringArgs(libsPart);
+        size_t eq_pos = args.find('=', libs_pos);
+        if (eq_pos != std::string::npos) {
+          std::string libs_part = args.substr(eq_pos + 1);
+          auto libs = ExtractStringArgs(libs_part);
           for (const auto& lib : libs) {
-            t.linkLibs.push_back(lib);
+            t.link_libs.push_back(lib);
           }
         }
       }
@@ -352,28 +352,28 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
 
   // env.StaticLibrary('name', [...sources...])
   if (MatchFunc(trimmed, "StaticLibrary", &args)) {
-    auto stringArgs = ExtractStringArgs(args);
-    if (!stringArgs.empty()) {
+    auto string_args = ExtractStringArgs(args);
+    if (!string_args.empty()) {
       SconTarget t;
-      t.name = stringArgs[0];
+      t.name = string_args[0];
       t.type = "library";
-      t.srcDir = currentSrcDir_;
-      t.path = currentPath_;
-      for (size_t i = 1; i < stringArgs.size(); ++i) {
-        if (buildutil::IsCppSource(stringArgs[i]) || buildutil::IsCSource(stringArgs[i])) {
-          t.srcs.push_back(stringArgs[i]);
+      t.src_dir = current_src_dir_;
+      t.path = current_path_;
+      for (size_t i = 1; i < string_args.size(); ++i) {
+        if (buildutil::IsCppSource(string_args[i]) || buildutil::IsCSource(string_args[i])) {
+          t.srcs.push_back(string_args[i]);
         }
       }
       // Capture LIBS from keyword argument: LIBS=['math'] or LIBS=['math', 'foo']
-      size_t libsPos = args.find("LIBS");
-      if (libsPos != std::string::npos) {
+      size_t libs_pos = args.find("LIBS");
+      if (libs_pos != std::string::npos) {
         // Find the list after LIBS= (skip the = sign)
-        size_t eqPos = args.find('=', libsPos);
-        if (eqPos != std::string::npos) {
-          std::string libsPart = args.substr(eqPos + 1);
-          auto libs = ExtractStringArgs(libsPart);
+        size_t eq_pos = args.find('=', libs_pos);
+        if (eq_pos != std::string::npos) {
+          std::string libs_part = args.substr(eq_pos + 1);
+          auto libs = ExtractStringArgs(libs_part);
           for (const auto& lib : libs) {
-            t.linkLibs.push_back(lib);
+            t.link_libs.push_back(lib);
           }
         }
       }
@@ -384,28 +384,28 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
 
   // env.Program('name', [...sources...]) — executable
   if (MatchFunc(trimmed, "Program", &args)) {
-    auto stringArgs = ExtractStringArgs(args);
-    if (!stringArgs.empty()) {
+    auto string_args = ExtractStringArgs(args);
+    if (!string_args.empty()) {
       SconTarget t;
-      t.name = stringArgs[0];
+      t.name = string_args[0];
       t.type = "program";
-      t.srcDir = currentSrcDir_;
-      t.path = currentPath_;
-      for (size_t i = 1; i < stringArgs.size(); ++i) {
-        if (buildutil::IsCppSource(stringArgs[i]) || buildutil::IsCSource(stringArgs[i])) {
-          t.srcs.push_back(stringArgs[i]);
+      t.src_dir = current_src_dir_;
+      t.path = current_path_;
+      for (size_t i = 1; i < string_args.size(); ++i) {
+        if (buildutil::IsCppSource(string_args[i]) || buildutil::IsCSource(string_args[i])) {
+          t.srcs.push_back(string_args[i]);
         }
       }
       // Capture LIBS from keyword argument: LIBS=['math'] or LIBS=['math', 'foo']
-      size_t libsPos = args.find("LIBS");
-      if (libsPos != std::string::npos) {
+      size_t libs_pos = args.find("LIBS");
+      if (libs_pos != std::string::npos) {
         // Find the list after LIBS= (skip the = sign)
-        size_t eqPos = args.find('=', libsPos);
-        if (eqPos != std::string::npos) {
-          std::string libsPart = args.substr(eqPos + 1);
-          auto libs = ExtractStringArgs(libsPart);
+        size_t eq_pos = args.find('=', libs_pos);
+        if (eq_pos != std::string::npos) {
+          std::string libs_part = args.substr(eq_pos + 1);
+          auto libs = ExtractStringArgs(libs_part);
           for (const auto& lib : libs) {
-            t.linkLibs.push_back(lib);
+            t.link_libs.push_back(lib);
           }
         }
       }
@@ -416,14 +416,14 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
 
   // env.SharedObject('file.c') — compile to .o
   if (MatchFunc(trimmed, "SharedObject", &args)) {
-    auto stringArgs = ExtractStringArgs(args);
-    for (const auto& s : stringArgs) {
+    auto string_args = ExtractStringArgs(args);
+    for (const auto& s : string_args) {
       if (buildutil::IsCppSource(s) || buildutil::IsCSource(s)) {
         SconTarget t;
         t.name = s;
         t.type = "object";
-        t.srcDir = currentSrcDir_;
-        t.path = currentPath_;
+        t.src_dir = current_src_dir_;
+        t.path = current_path_;
         t.srcs.push_back(s);
         targets_.push_back(t);
       }
@@ -433,14 +433,14 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
 
   // env.Object('file.cc') — compile to .o
   if (MatchFunc(trimmed, "Object", &args)) {
-    auto stringArgs = ExtractStringArgs(args);
-    for (const auto& s : stringArgs) {
+    auto string_args = ExtractStringArgs(args);
+    for (const auto& s : string_args) {
       if (buildutil::IsCppSource(s) || buildutil::IsCSource(s)) {
         SconTarget t;
         t.name = s;
         t.type = "object";
-        t.srcDir = currentSrcDir_;
-        t.path = currentPath_;
+        t.src_dir = current_src_dir_;
+        t.path = current_path_;
         t.srcs.push_back(s);
         targets_.push_back(t);
       }
@@ -454,19 +454,19 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
     if (args.find("CCFLAGS") != std::string::npos) {
       auto flags = ExtractList(args);
       for (const auto& f : flags) {
-        if (f[0] == '-') envCflags_.push_back(f);
+        if (f[0] == '-') env_cflags_.push_back(f);
       }
     }
     if (args.find("CPPDEFINES") != std::string::npos) {
       auto defs = ExtractList(args);
       for (const auto& d : defs) {
-        envDefines_.push_back(d);
+        env_defines_.push_back(d);
       }
     }
     if (args.find("LIBS") != std::string::npos) {
       auto libs = ExtractList(args);
       for (const auto& l : libs) {
-        envLibs_.push_back(l);
+        env_libs_.push_back(l);
       }
     }
     return;
@@ -477,7 +477,7 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
     if (args.find("CPPPATH") != std::string::npos) {
       auto dirs = ExtractList(args);
       for (const auto& d : dirs) {
-        envIncludeDirs_.push_back(d);
+        env_include_dirs_.push_back(d);
       }
     }
     return;
@@ -485,19 +485,19 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
 
   // SConscript('path/SConscript') — recursive include
   if (MatchFunc(trimmed, "SConscript", &args)) {
-    auto stringArgs = ExtractStringArgs(args);
-    for (const auto& s : stringArgs) {
+    auto string_args = ExtractStringArgs(args);
+    for (const auto& s : string_args) {
       // Resolve relative to current dir
-      std::string scriptPath;
+      std::string script_path;
       if (s[0] == '/') {
-        scriptPath = s;
+        script_path = s;
       } else {
-        scriptPath = currentSrcDir_ + "/" + s;
+        script_path = current_src_dir_ + "/" + s;
       }
-      if (buildutil::FileExists(scriptPath)) {
-        ScanFile(scriptPath);
-      } else if (buildutil::FileExists(scriptPath + "/SConscript")) {
-        ScanFile(scriptPath + "/SConscript");
+      if (buildutil::FileExists(script_path)) {
+        ScanFile(script_path);
+      } else if (buildutil::FileExists(script_path + "/SConscript")) {
+        ScanFile(script_path + "/SConscript");
       }
     }
     return;
@@ -505,13 +505,13 @@ void SconScanner::ProcessLine(const std::string& rawLine) {
 
   // SourceLib('libname', tags=[...]) — library dependency
   if (MatchFunc(trimmed, "SourceLib", &args)) {
-    auto stringArgs = ExtractStringArgs(args);
-    if (!stringArgs.empty()) {
+    auto string_args = ExtractStringArgs(args);
+    if (!string_args.empty()) {
       SconTarget t;
-      t.name = stringArgs[0];
+      t.name = string_args[0];
       t.type = "source_lib";
-      t.srcDir = currentSrcDir_;
-      t.path = currentPath_;
+      t.src_dir = current_src_dir_;
+      t.path = current_path_;
       targets_.push_back(t);
     }
     return;
@@ -567,7 +567,7 @@ void SconScanner::OutputJson() const {
     printf("    {\n");
     printf("      \"name\": \"%s\",\n", JsonEscape(t.name).c_str());
     printf("      \"type\": \"%s\",\n", JsonEscape(t.type).c_str());
-    printf("      \"src_dir\": \"%s\",\n", JsonEscape(t.srcDir).c_str());
+    printf("      \"src_dir\": \"%s\",\n", JsonEscape(t.src_dir).c_str());
     printf("      \"path\": \"%s\",\n", JsonEscape(t.path).c_str());
 
     printf("      \"srcs\": ");
@@ -587,7 +587,7 @@ void SconScanner::OutputJson() const {
     printf(",\n");
 
     printf("      \"include_dirs\": ");
-    OutputArray(t.includeDirs);
+    OutputArray(t.include_dirs);
     printf(",\n");
 
     printf("      \"defines\": ");
@@ -595,7 +595,7 @@ void SconScanner::OutputJson() const {
     printf(",\n");
 
     printf("      \"link_libs\": ");
-    OutputArray(t.linkLibs);
+    OutputArray(t.link_libs);
     printf("\n");
 
     printf("    }");
@@ -610,108 +610,108 @@ void SconScanner::OutputJson() const {
 // =====================================================================
 
 std::string SconScanner::GetOutputPath(const SconTarget& target) const {
-  std::string dir = target.srcDir.empty() ? "." : target.srcDir;
+  std::string dir = target.src_dir.empty() ? "." : target.src_dir;
   return dir + "/build/" + target.name;
 }
 
 std::string SconScanner::GetObjectPath(const SconTarget& target,
                                         const std::string& src) const {
-  std::string dir = target.srcDir.empty() ? "." : target.srcDir;
+  std::string dir = target.src_dir.empty() ? "." : target.src_dir;
   return dir + "/build/obj/" + target.name + "/" + buildutil::BaseName(src) + ".o";
 }
 
-bool SconScanner::NeedsRecompile(const std::string& objFile,
-                                  const std::string& srcFile) const {
-  return buildutil::NeedsRecompile(objFile, srcFile);
+bool SconScanner::NeedsRecompile(const std::string& obj_file,
+                                  const std::string& src_file) const {
+  return buildutil::NeedsRecompile(obj_file, src_file);
 }
 
 bool SconScanner::ExecuteCmd(const std::string& cmd) {
-  if (dryRun_) { std::printf("  %s\n", cmd.c_str()); return true; }
+  if (dry_run_) { std::printf("  %s\n", cmd.c_str()); return true; }
   return buildutil::ExecuteCmd(cmd);
 }
 
 bool SconScanner::CompileSource(const SconTarget& target,
                                   const std::string& src,
-                                  const std::string& objFile) {
-  if (!NeedsRecompile(objFile, src)) {
+                                  const std::string& obj_file) {
+  if (!NeedsRecompile(obj_file, src)) {
     std::printf("  [skip] %s (up-to-date)\n", src.c_str());
     return true;
   }
 
-  std::string srcPath = src;
-  if (srcPath[0] != '/') {
-    std::string dir = target.srcDir.empty() ? "." : target.srcDir;
-    srcPath = dir + "/" + srcPath;
+  std::string src_path = src;
+  if (src_path[0] != '/') {
+    std::string dir = target.src_dir.empty() ? "." : target.src_dir;
+    src_path = dir + "/" + src_path;
   }
 
   std::string compiler = buildutil::GetCompiler(src);
-  std::string cmd = compiler + " -MMD -MP -c -o " + objFile + " " + srcPath;
+  std::string cmd = compiler + " -MMD -MP -c -o " + obj_file + " " + src_path;
 
   // Add env cflags
-  for (const auto& f : envCflags_) cmd += " " + f;
+  for (const auto& f : env_cflags_) cmd += " " + f;
   // Add target cflags
   for (const auto& f : target.cflags) cmd += " " + f;
   // Add defines
-  for (const auto& d : envDefines_) cmd += " -D" + d;
+  for (const auto& d : env_defines_) cmd += " -D" + d;
   for (const auto& d : target.defines) cmd += " -D" + d;
   // Add include dirs
-  for (const auto& inc : envIncludeDirs_) {
+  for (const auto& inc : env_include_dirs_) {
     cmd += " -I" + inc;
   }
-  for (const auto& inc : target.includeDirs) {
+  for (const auto& inc : target.include_dirs) {
     if (inc[0] == '/') cmd += " -I" + inc;
     else {
-      std::string dir = target.srcDir.empty() ? "." : target.srcDir;
+      std::string dir = target.src_dir.empty() ? "." : target.src_dir;
       cmd += " -I" + dir + "/" + inc;
     }
   }
   cmd += " -Wall";
 
-  std::string objDir = objFile.substr(0, objFile.find_last_of('/'));
-  if (!dryRun_) buildutil::MkdirP(objDir);
+  std::string obj_dir = obj_file.substr(0, obj_file.find_last_of('/'));
+  if (!dry_run_) buildutil::MkdirP(obj_dir);
   return ExecuteCmd(cmd);
 }
 
 bool SconScanner::LinkTarget(const SconTarget& target) {
-  std::string outputPath = GetOutputPath(target);
-  std::string dir = target.srcDir.empty() ? "." : target.srcDir;
-  if (!dryRun_) buildutil::MkdirP(dir + "/build");
+  std::string output_path = GetOutputPath(target);
+  std::string dir = target.src_dir.empty() ? "." : target.src_dir;
+  if (!dry_run_) buildutil::MkdirP(dir + "/build");
 
-  std::string objFiles;
+  std::string obj_files;
   for (const auto& src : target.srcs) {
-    objFiles += " " + GetObjectPath(target, src);
+    obj_files += " " + GetObjectPath(target, src);
   }
 
   if (target.type == "library") {
-    std::string cmd = "ar rcs " + outputPath + ".a" + objFiles;
+    std::string cmd = "ar rcs " + output_path + ".a" + obj_files;
     return ExecuteCmd(cmd);
   }
 
   if (target.type == "shared_library") {
-    std::string cmd = "g++ -shared -o " + outputPath + ".so" + objFiles;
+    std::string cmd = "g++ -shared -o " + output_path + ".so" + obj_files;
     for (const auto& f : target.ldflags) cmd += " " + f;
     return ExecuteCmd(cmd);
   }
 
   if (target.type == "program") {
-    std::string cmd = "g++ -o " + outputPath + objFiles;
+    std::string cmd = "g++ -o " + output_path + obj_files;
     for (const auto& f : target.ldflags) cmd += " " + f;
 
     // Link env libs
-    for (const auto& lib : envLibs_) {
+    for (const auto& lib : env_libs_) {
       cmd += " -l" + lib;
     }
     // Link target libs — find local .a files first
-    for (const auto& lib : target.linkLibs) {
-      std::string libPath;
+    for (const auto& lib : target.link_libs) {
+      std::string lib_path;
       for (const auto& t : targets_) {
         if (t.name == lib && t.type == "library") {
-          libPath = GetOutputPath(t) + ".a";
+          lib_path = GetOutputPath(t) + ".a";
           break;
         }
       }
-      if (!libPath.empty()) {
-        cmd += " " + libPath;
+      if (!lib_path.empty()) {
+        cmd += " " + lib_path;
       } else {
         cmd += " -l" + lib;
       }
@@ -740,8 +740,8 @@ bool SconScanner::BuildTarget(const SconTarget& target) {
               target.type.c_str());
 
   for (const auto& src : target.srcs) {
-    std::string objFile = GetObjectPath(target, src);
-    if (!CompileSource(target, src, objFile)) {
+    std::string obj_file = GetObjectPath(target, src);
+    if (!CompileSource(target, src, obj_file)) {
       std::fprintf(stderr, "gor_make: *** [%s] Error compiling %s\n",
                    target.name.c_str(), src.c_str());
       return false;

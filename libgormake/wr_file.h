@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef GORMAKE_LIBGORMAKE_WRFILE_H_
-#define GORMAKE_LIBGORMAKE_WRFILE_H_
+#ifndef GORMAKE_LIBGORMAKE_WR_FILE_H_
+#define GORMAKE_LIBGORMAKE_WR_FILE_H_
 
 #include "macros.h"
 
@@ -63,4 +63,4 @@ class WrFile {
 
 }  // namespace UnixFile
 
-#endif  // GORMAKE_LIBGORMAKE_WRFILE_H_
+#endif  // GORMAKE_LIBGORMAKE_WR_FILE_H_

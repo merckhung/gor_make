@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef GORMAKE_GNSCANNER_H_
-#define GORMAKE_GNSCANNER_H_
+#ifndef GORMAKE_LIBGORMAKE_GN_SCANNER_H_
+#define GORMAKE_LIBGORMAKE_GN_SCANNER_H_
 
 #include <map>
 #include <string>
@@ -31,16 +31,16 @@ struct GnTarget {
   std::string name;
   std::string type;  // executable, static_library, shared_library, source_set,
                      // group, config, action
-  std::string srcDir;
+  std::string src_dir;
   std::vector<std::string> srcs;
   std::vector<std::string> deps;
   std::vector<std::string> cflags;
   std::vector<std::string> cppflags;
   std::vector<std::string> ldflags;
-  std::vector<std::string> includeDirs;
+  std::vector<std::string> include_dirs;
   std::vector<std::string> defines;
   std::vector<std::string> configs;      // public_configs
-  std::vector<std::string> publicDeps;
+  std::vector<std::string> public_deps;
   std::string path;
 };
 
@@ -68,7 +68,7 @@ class GnScanner {
 
   // Recursively scans a directory tree for BUILD.gn files.
   // Skips directories matching /out/, /bazel-*, /.git/.
-  void ScanDirectory(const std::string& dirPath);
+  void ScanDirectory(const std::string& dir_path);
 
   // Returns all targets collected from scanning.
   const std::vector<GnTarget>& GetTargets() const;
@@ -76,7 +76,7 @@ class GnScanner {
   // Outputs the collected targets as JSON to stdout.
   // The "format" field is set to "build.gn".
   void OutputJson() const;
-  void SetDryRun(bool v) { dryRun_ = v; }
+  void SetDryRun(bool v) { dry_run_ = v; }
   void SetJobs(int j) { jobs_ = j; }
 
   // Build all targets. Returns 0 on success.
@@ -108,32 +108,32 @@ class GnScanner {
   // --- Build engine methods ---
   bool BuildTarget(const GnTarget& target);
   bool CompileSource(const GnTarget& target, const std::string& src,
-                     const std::string& objFile);
+                     const std::string& obj_file);
   bool LinkTarget(const GnTarget& target);
   std::string GetOutputPath(const GnTarget& target) const;
   std::string GetObjectPath(const GnTarget& target,
                             const std::string& src) const;
   bool ExecuteCmd(const std::string& cmd);
-  bool NeedsRecompile(const std::string& objFile,
-                      const std::string& srcFile) const;
+  bool NeedsRecompile(const std::string& obj_file,
+                      const std::string& src_file) const;
 
   std::vector<GnTarget> targets_;
   // Top-level (and target-local) variables: name -> string value.
   std::map<std::string, std::string> variables_;
   // List-typed variables: name -> list of strings.
-  std::map<std::string, std::vector<std::string>> listVariables_;
+  std::map<std::string, std::vector<std::string>> list_variables_;
 
   // Current target being built (empty when not inside a target block).
   GnTarget current_;
-  bool inTarget_;
-  int braceDepth_;  // Nesting depth inside the current target block.
+  bool in_target_;
+  int brace_depth_;  // Nesting depth inside the current target block.
 
   // For import() tracking
-  std::unordered_set<std::string> visitedFiles_;
-  bool dryRun_ = false;
+  std::unordered_set<std::string> visited_files_;
+  bool dry_run_ = false;
   int jobs_ = 1;
 };
 
 }  // namespace gormake
 
-#endif  // GORMAKE_GNSCANNER_H_
+#endif  // GORMAKE_LIBGORMAKE_GN_SCANNER_H_
