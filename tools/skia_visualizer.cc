@@ -524,10 +524,25 @@ int main(int argc, char** argv) {
           win_height = event.window.data2;
         }
       } else if (event.type == SDL_MOUSEBUTTONDOWN) {
-        if (event.button.button == SDL_BUTTON_LEFT) {
-          float mouse_x = event.button.x;
-          float mouse_y = event.button.y;
+        float mouse_x = event.button.x;
+        float mouse_y = event.button.y;
+        float mouse_graph_x = (mouse_x - pan_x) / zoom;
+        float mouse_graph_y = (mouse_y - pan_y) / zoom;
 
+        // Perform hit detection on nodes
+        int new_selection = -1;
+        // Iterate in reverse for painter's algorithm hit testing
+        for (int i = (int)v_graph.visible_node_indices.size() - 1; i >= 0; --i) {
+          int node_idx = v_graph.visible_node_indices[i];
+          const auto& node = graph.nodes[node_idx];
+          if (mouse_graph_x >= node.x - node.width/2 && mouse_graph_x <= node.x + node.width/2 &&
+              mouse_graph_y >= node.y - node.height/2 && mouse_graph_y <= node.y + node.height/2) {
+            new_selection = node_idx;
+            break;
+          }
+        }
+
+        if (event.button.button == SDL_BUTTON_LEFT) {
           bool clicked_popup = false;
           if (selected_node >= 0) {
               for (const auto& pr : popup_click_rects) {
@@ -577,30 +592,21 @@ int main(int argc, char** argv) {
               drag_start_x = event.button.x;
               drag_start_y = event.button.y;
 
-              float mouse_graph_x = (event.button.x - pan_x) / zoom;
-              float mouse_graph_y = (event.button.y - pan_y) / zoom;
-
-              int new_selection = -1;
-              // Iterate in reverse for painter's algorithm hit testing
-              for (int i = (int)v_graph.visible_node_indices.size() - 1; i >= 0; --i) {
-                int node_idx = v_graph.visible_node_indices[i];
-                const auto& node = graph.nodes[node_idx];
-                if (mouse_graph_x >= node.x - node.width/2 && mouse_graph_x <= node.x + node.width/2 &&
-                    mouse_graph_y >= node.y - node.height/2 && mouse_graph_y <= node.y + node.height/2) {
-                  new_selection = node_idx;
-                  break;
-                }
+              if (new_selection != -1) {
+                  if (graph.nodes[new_selection].is_folder) {
+                      // Toggle folder expansion
+                      graph.nodes[new_selection].expanded = !graph.nodes[new_selection].expanded;
+                      CompileVisibleGraph(graph, v_graph);
+                      ComputeGraphLayout(graph, v_graph);
+                  }
+              } else {
+                  // Clicked empty space on left click, cancel popup
+                  update_popup(-1);
               }
-              
-              if (new_selection != -1 && graph.nodes[new_selection].is_folder) {
-                  // Toggle folder expansion
-                  graph.nodes[new_selection].expanded = !graph.nodes[new_selection].expanded;
-                  CompileVisibleGraph(graph, v_graph);
-                  ComputeGraphLayout(graph, v_graph);
-              }
-              
-              update_popup(new_selection);
           }
+        } else if (event.button.button == SDL_BUTTON_RIGHT) {
+            // Right click shows popup window
+            update_popup(new_selection);
         }
       } else if (event.type == SDL_MOUSEBUTTONUP) {
         if (event.button.button == SDL_BUTTON_LEFT) {
