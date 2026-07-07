@@ -219,6 +219,41 @@ void BuildFolderHierarchy(Graph& graph) {
   std::unordered_map<std::string, int> dir_to_node_idx;
   int original_target_count = (int)graph.nodes.size();
 
+  std::string common_prefix = "";
+  if (original_target_count > 0) {
+      for (int i = 0; i < original_target_count; ++i) {
+          if (!graph.nodes[i].src_dir.empty() && graph.nodes[i].src_dir != "/") {
+              common_prefix = graph.nodes[i].src_dir;
+              break;
+          }
+      }
+      for (int i = 0; i < original_target_count; ++i) {
+          if (graph.nodes[i].src_dir.empty() || graph.nodes[i].src_dir == "/") continue;
+          size_t j = 0;
+          while (j < common_prefix.size() && j < graph.nodes[i].src_dir.size() && 
+                 common_prefix[j] == graph.nodes[i].src_dir[j]) {
+              j++;
+          }
+          common_prefix = common_prefix.substr(0, j);
+      }
+      // Trim to the last complete directory boundary
+      size_t last_slash = common_prefix.find_last_of('/');
+      if (last_slash != std::string::npos && last_slash < common_prefix.size()) {
+          common_prefix = common_prefix.substr(0, last_slash);
+      }
+  }
+
+  std::cerr << "Computed source root prefix: " << common_prefix << std::endl;
+
+  for (int i = 0; i < original_target_count; ++i) {
+      if (!graph.nodes[i].src_dir.empty() && graph.nodes[i].src_dir.find(common_prefix) == 0) {
+          graph.nodes[i].src_dir = graph.nodes[i].src_dir.substr(common_prefix.size());
+          if (!graph.nodes[i].src_dir.empty() && graph.nodes[i].src_dir[0] == '/') {
+              graph.nodes[i].src_dir = graph.nodes[i].src_dir.substr(1);
+          }
+      }
+  }
+
   // Recursive folder creator
   std::function<int(const std::string&)> get_or_create_folder = [&](const std::string& path) -> int {
       if (path.empty() || path == "/") return -1;
