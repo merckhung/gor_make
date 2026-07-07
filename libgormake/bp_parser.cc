@@ -293,12 +293,12 @@ bool BpParser::Tokenize(const std::string& source,
     }
 
     // ---- Identifier ----
-    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '@') {
       std::string ident;
       while (i < n) {
         char ch = source[i];
         if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-            (ch >= '0' && ch <= '9') || ch == '_') {
+            (ch >= '0' && ch <= '9') || ch == '_' || ch == '@' || ch == '.' || ch == '-') {
           ident.push_back(ch);
           ++i;
         } else {
@@ -312,9 +312,8 @@ bool BpParser::Tokenize(const std::string& source,
     }
 
     // ---- Unknown character ----
-    error_ = "unexpected character '" + std::string(1, c) + "' at line " +
-             std::to_string(line);
-    return false;
+    // Skip unexpected characters (e.g. invalid bytes, weird unicode) instead of failing
+    ++i;
   }
 
   // End-of-file sentinel.
@@ -414,9 +413,15 @@ bool BpParser::ParseTopLevel(BpFile* result) {
       }
       (*variables_)[var_name] = val;
     } else if (lookahead.type == TOK_PLUS) {
-      // += append?  Blueprint doesn't have +=, but handle gracefully.
-      return Error("unexpected '+', did you mean '='? at line " +
-                   std::to_string(tok.line));
+      // += append variable
+      std::string var_name = tok.value;
+      Advance();  // consume IDENT
+      Advance();  // consume '+'
+      if (Current().type == TOK_ASSIGN) Advance();  // consume '='
+      BpValue val;
+      if (ParseValue(&val)) {
+        (*variables_)[var_name] = val;
+      }
     } else {
       return Error("expected '{' or '=' after identifier '" + tok.value +
                    "' at line " + std::to_string(tok.line));
@@ -430,7 +435,6 @@ bool BpParser::ParseTopLevel(BpFile* result) {
 // =====================================================================
 
 bool BpParser::ParseModule(BpModule* module) {
-  // We are positioned at the module type identifier.
   module->type = Current().value;
   Advance();  // consume type
 
@@ -441,9 +445,11 @@ bool BpParser::ParseModule(BpModule* module) {
   // Parse properties.
   while (!AtEnd() && Current().type != TOK_RBRACE) {
     if (!ParseProperty(&module->properties)) {
-      return false;
+      // If property parsing failed, skip to next ',' or '}'
+      while (!AtEnd() && Current().type != TOK_COMMA && Current().type != TOK_RBRACE) {
+        Advance();
+      }
     }
-    // Trailing comma is allowed.
     Accept(TOK_COMMA);
   }
 
@@ -451,7 +457,6 @@ bool BpParser::ParseModule(BpModule* module) {
     return false;
   }
 
-  // Extract the module name for convenience.
   auto it = module->properties.find("name");
   if (it != module->properties.end() && it->second.IsString()) {
     module->name = it->second.str_val;
@@ -461,7 +466,7 @@ bool BpParser::ParseModule(BpModule* module) {
 }
 
 bool BpParser::ParseProperty(std::map<std::string, BpValue>* props) {
-  if (Current().type != TOK_IDENT) {
+  if (Current().type != TOK_IDENT && Current().type != TOK_STRING) {
     return Error("expected property name but got '" + Current().value +
                  "' at line " + std::to_string(Current().line));
   }
@@ -469,8 +474,13 @@ bool BpParser::ParseProperty(std::map<std::string, BpValue>* props) {
   std::string key = Current().value;
   Advance();  // consume key
 
-  if (!Expect(TOK_COLON, "':'")) {
-    return false;
+  if (Current().type == TOK_PLUS) {
+    Advance(); // consume '+'
+  }
+  if (Current().type == TOK_ASSIGN) {
+    Advance(); // consume '='
+  } else if (Current().type == TOK_COLON) {
+    Advance(); // consume ':'
   }
 
   BpValue val;
@@ -478,7 +488,6 @@ bool BpParser::ParseProperty(std::map<std::string, BpValue>* props) {
     return false;
   }
 
-  // If the key already exists and both are lists, merge (Blueprint appends).
   auto it = props->find(key);
   if (it != props->end() && it->second.IsList() && val.IsList()) {
     for (auto& e : val.list_val) {
@@ -581,6 +590,12 @@ bool BpParser::ParsePrimary(BpValue* value) {
     case TOK_LBRACE:
       return ParseMap(value);
 
+    case TOK_LPAREN: {
+      if (!SkipParenthesized()) return false;
+      value->type = BpValue::NONE;
+      return true;
+    }
+
     case TOK_IDENT: {
       // Could be: true, false, a variable reference, or a function call.
       if (tok.value == "true") {
@@ -619,59 +634,58 @@ bool BpParser::ParsePrimary(BpValue* value) {
 }
 
 bool BpParser::SkipParenthesized() {
-  // Skip everything until matching TOK_RPAREN, handling nesting
+  if (Current().type == TOK_LPAREN) Advance(); // consume initial '('
   int depth = 1;
   while (!AtEnd() && depth > 0) {
     if (Current().type == TOK_LPAREN) depth++;
     else if (Current().type == TOK_RPAREN) depth--;
-    if (depth > 0) Advance();
+    Advance();
   }
-  if (depth != 0) {
-    return Error("unmatched '(' in function call");
-  }
-  // Consume the closing ')'
-  Advance();
   return true;
 }
 
 bool BpParser::ParseFunctionCall(BpValue* value) {
-  // ident(args) — handle known functions
   std::string func_name = Current().value;
   Advance();  // consume identifier
 
-  // Expect '('
   if (!Expect(TOK_LPAREN, "'('")) {
     return false;
   }
 
-  // For select() calls, try to extract a default value.
-  // select({key: value, ...}) — we pick "default" key or first value.
+  std::vector<BpValue> args;
+  while (!AtEnd() && Current().type != TOK_RPAREN) {
+    BpValue arg;
+    if (ParseValue(&arg)) {
+      args.push_back(std::move(arg));
+    } else {
+      // If parsing arg failed, skip until comma or closing paren
+      while (!AtEnd() && Current().type != TOK_COMMA && Current().type != TOK_RPAREN) {
+        Advance();
+      }
+    }
+    if (Current().type == TOK_COMMA) {
+      Advance();
+    }
+  }
+  Expect(TOK_RPAREN, "')'");
+
   if (func_name == "select") {
-    BpValue select_arg;
-    if (ParsePrimary(&select_arg)) {
-      if (select_arg.type == BpValue::MAP) {
-        auto it = select_arg.map_val.find("default");
-        if (it != select_arg.map_val.end()) {
+    for (const auto& arg : args) {
+      if (arg.type == BpValue::MAP) {
+        auto it = arg.map_val.find("default");
+        if (it != arg.map_val.end()) {
           *value = it->second;
           return true;
         }
-        if (!select_arg.map_val.empty()) {
-          *value = select_arg.map_val.begin()->second;
+        if (!arg.map_val.empty()) {
+          *value = arg.map_val.begin()->second;
           return true;
         }
-      } else if (select_arg.type == BpValue::LIST ||
-                 select_arg.type == BpValue::STRING) {
-        *value = select_arg;
+      } else if (arg.type == BpValue::LIST || arg.type == BpValue::STRING) {
+        *value = arg;
         return true;
       }
     }
-    value->type = BpValue::NONE;
-    return true;
-  }
-
-  // For other function calls (release_flag(), etc.), skip arguments
-  if (!SkipParenthesized()) {
-    return false;
   }
 
   value->type = BpValue::NONE;
@@ -700,20 +714,21 @@ bool BpParser::ParseList(BpValue* value) {
       return false;
     }
 
-    // Glob expansion: if the element is a string containing wildcard
-    // characters, expand it.
-    if (elem.type == BpValue::STRING &&
-        (elem.str_val.find('*') != std::string::npos ||
-         elem.str_val.find('?') != std::string::npos)) {
-      std::vector<std::string> matched = ExpandGlob(elem.str_val);
-      for (const auto& m : matched) {
+    if (elem.type == BpValue::LIST) {
+      for (auto& e : elem.list_val) {
+        value->list_val.push_back(std::move(e));
+      }
+    } else if (elem.type == BpValue::STRING &&
+               (elem.str_val.find('*') != std::string::npos ||
+                elem.str_val.find('?') != std::string::npos)) {
+      std::vector<std::string> matches = ExpandGlob(elem.str_val);
+      for (const auto& m : matches) {
         value->list_val.push_back(BpValue::String(m));
       }
     } else {
       value->list_val.push_back(std::move(elem));
     }
 
-    // Expect comma or ']'.
     if (Current().type == TOK_COMMA) {
       Advance();
     } else if (Current().type != TOK_RBRACKET) {
@@ -738,12 +753,25 @@ bool BpParser::ParseMap(BpValue* value) {
   }
 
   while (!AtEnd() && Current().type != TOK_RBRACE) {
-    if (Current().type != TOK_IDENT) {
+    std::string key;
+    if (Current().type == TOK_LPAREN) {
+      key = "(";
+      Advance();
+      while (!AtEnd() && Current().type != TOK_RPAREN) {
+        key += Current().value;
+        Advance();
+      }
+      if (Current().type == TOK_RPAREN) {
+        key += ")";
+        Advance();
+      }
+    } else if (Current().type == TOK_IDENT || Current().type == TOK_STRING) {
+      key = Current().value;
+      Advance();
+    } else {
       return Error("expected map key but got '" + Current().value +
                    "' at line " + std::to_string(Current().line));
     }
-    std::string key = Current().value;
-    Advance();
 
     if (!Expect(TOK_COLON, "':'")) {
       return false;
@@ -759,9 +787,6 @@ bool BpParser::ParseMap(BpValue* value) {
     // Trailing comma is allowed.
     if (Current().type == TOK_COMMA) {
       Advance();
-    } else if (Current().type != TOK_RBRACE) {
-      return Error("expected ',' or '}' but got '" + Current().value +
-                   "' at line " + std::to_string(Current().line));
     }
   }
 
