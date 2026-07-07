@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <functional>
 
 #include <SDL2/SDL.h>
 
@@ -42,6 +43,11 @@ struct Node {
   float height = 44.0f;
   SkColor color = SK_ColorGRAY;
   std::vector<std::string> raw_deps;
+
+  bool is_folder = false;
+  bool expanded = false;
+  int parent_idx = -1;
+  std::vector<int> children;
 };
 
 struct Edge {
@@ -57,6 +63,11 @@ struct Graph {
   std::unordered_map<std::string, int> name_to_index;
   std::string format_name;
   int total_items = 0;
+};
+
+struct VisibleGraph {
+  std::vector<int> visible_node_indices;
+  std::vector<Edge> visible_edges;
 };
 
 // Color mapping for target types
@@ -204,28 +215,138 @@ bool ParseGorMakeJson(const std::string& filepath, Graph& graph) {
   return !graph.nodes.empty();
 }
 
-void ComputeGraphLayout(Graph& graph, float layout_width = 5000.0f, float layout_height = 4000.0f) {
-  int n = (int)graph.nodes.size();
-  if (n == 0) return;
+void BuildFolderHierarchy(Graph& graph) {
+  std::unordered_map<std::string, int> dir_to_node_idx;
+  int original_target_count = (int)graph.nodes.size();
 
-  // Build adjacency
-  std::vector<std::vector<int>> adj(n);
-  std::vector<int> in_degree(n, 0);
+  // Recursive folder creator
+  std::function<int(const std::string&)> get_or_create_folder = [&](const std::string& path) -> int {
+      if (path.empty() || path == "/") return -1;
+      auto it = dir_to_node_idx.find(path);
+      if (it != dir_to_node_idx.end()) return it->second;
 
-  for (const auto& edge : graph.edges) {
-    if (edge.from_index < n && edge.to_index < n) {
-      adj[edge.from_index].push_back(edge.to_index);
-      in_degree[edge.to_index]++;
+      size_t last_slash = path.find_last_of('/');
+      int parent_idx = -1;
+      if (last_slash != std::string::npos && last_slash > 0) {
+          std::string parent_path = path.substr(0, last_slash);
+          parent_idx = get_or_create_folder(parent_path);
+      }
+
+      Node folder_node;
+      folder_node.name = path;
+      if (last_slash != std::string::npos && last_slash < path.size() - 1) {
+          folder_node.name = "📁 " + path.substr(last_slash + 1);
+      } else {
+          folder_node.name = "📁 " + path;
+      }
+      folder_node.type = "folder";
+      folder_node.src_dir = path;
+      folder_node.width = 200.0f;
+      folder_node.height = 50.0f;
+      folder_node.is_folder = true;
+      folder_node.expanded = false; // Initially collapsed
+      folder_node.parent_idx = parent_idx;
+      folder_node.color = SkColorSetRGB(33, 150, 243);
+
+      int idx = graph.nodes.size();
+      graph.nodes.push_back(folder_node);
+      dir_to_node_idx[path] = idx;
+      return idx;
+  };
+
+  for (int i = 0; i < original_target_count; ++i) {
+      if (graph.nodes[i].src_dir.empty()) continue;
+      int folder_idx = get_or_create_folder(graph.nodes[i].src_dir);
+      if (folder_idx != -1) {
+          graph.nodes[i].parent_idx = folder_idx;
+      }
+  }
+  
+  // Re-establish children links (safe as vector push_back is done)
+  for (int i = 0; i < (int)graph.nodes.size(); ++i) {
+      int p = graph.nodes[i].parent_idx;
+      if (p != -1) {
+          graph.nodes[p].children.push_back(i);
+      }
+  }
+}
+
+void CompileVisibleGraph(const Graph& full_graph, VisibleGraph& v_graph) {
+    v_graph.visible_node_indices.clear();
+    v_graph.visible_edges.clear();
+
+    std::vector<bool> is_visible(full_graph.nodes.size(), false);
+    std::vector<int> queue;
+
+    // Roots
+    for (int i = 0; i < (int)full_graph.nodes.size(); ++i) {
+        if (full_graph.nodes[i].parent_idx == -1) {
+            is_visible[i] = true;
+            queue.push_back(i);
+        }
     }
+
+    while (!queue.empty()) {
+        int idx = queue.back();
+        queue.pop_back();
+        
+        v_graph.visible_node_indices.push_back(idx);
+
+        if (full_graph.nodes[idx].is_folder && full_graph.nodes[idx].expanded) {
+            for (int child_idx : full_graph.nodes[idx].children) {
+                is_visible[child_idx] = true;
+                queue.push_back(child_idx);
+            }
+        }
+    }
+
+    auto get_visible_ancestor = [&](int node_idx) -> int {
+        int curr = node_idx;
+        while (curr != -1 && !is_visible[curr]) {
+            curr = full_graph.nodes[curr].parent_idx;
+        }
+        return curr;
+    };
+
+    std::set<std::pair<int, int>> edge_dedup;
+    for (const auto& edge : full_graph.edges) {
+        int vis_from = get_visible_ancestor(edge.from_index);
+        int vis_to = get_visible_ancestor(edge.to_index);
+
+        if (vis_from != -1 && vis_to != -1 && vis_from != vis_to) {
+            if (edge_dedup.insert({vis_from, vis_to}).second) {
+                Edge v_edge = edge;
+                v_edge.from_index = vis_from;
+                v_edge.to_index = vis_to;
+                v_graph.visible_edges.push_back(v_edge);
+            }
+        }
+    }
+}
+
+void ComputeGraphLayout(Graph& graph, const VisibleGraph& v_graph, float layout_width = 5000.0f, float layout_height = 4000.0f) {
+  int vn = (int)v_graph.visible_node_indices.size();
+  if (vn == 0) return;
+
+  std::unordered_map<int, int> node_to_vidx;
+  for(int i = 0; i < vn; ++i) {
+      node_to_vidx[v_graph.visible_node_indices[i]] = i;
   }
 
-  // Compute levels
-  std::vector<int> level(n, 0);
+  std::vector<std::vector<int>> adj(vn);
+  std::vector<int> in_degree(vn, 0);
+
+  for (const auto& edge : v_graph.visible_edges) {
+    int u = node_to_vidx[edge.from_index];
+    int v = node_to_vidx[edge.to_index];
+    adj[u].push_back(v);
+    in_degree[v]++;
+  }
+
+  std::vector<int> level(vn, 0);
   std::vector<int> queue;
-  for (int i = 0; i < n; ++i) {
-    if (in_degree[i] == 0) {
-      queue.push_back(i);
-    }
+  for (int i = 0; i < vn; ++i) {
+    if (in_degree[i] == 0) queue.push_back(i);
   }
 
   int head = 0;
@@ -241,18 +362,16 @@ void ComputeGraphLayout(Graph& graph, float layout_width = 5000.0f, float layout
   }
 
   int max_level = 0;
-  for (int i = 0; i < n; ++i) {
-    graph.nodes[i].level = level[i];
+  for (int i = 0; i < vn; ++i) {
+    graph.nodes[v_graph.visible_node_indices[i]].level = level[i];
     max_level = std::max(max_level, level[i]);
   }
 
-  // Group nodes by level
   std::vector<std::vector<int>> level_nodes(max_level + 1);
-  for (int i = 0; i < n; ++i) {
-    level_nodes[level[i]].push_back(i);
+  for (int i = 0; i < vn; ++i) {
+    level_nodes[level[i]].push_back(v_graph.visible_node_indices[i]);
   }
 
-  // Position nodes
   float level_spacing_y = layout_height / std::max(max_level + 1, 1);
   if (level_spacing_y < 140.0f) level_spacing_y = 140.0f;
 
@@ -293,7 +412,10 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  ComputeGraphLayout(graph);
+  BuildFolderHierarchy(graph);
+  VisibleGraph v_graph;
+  CompileVisibleGraph(graph, v_graph);
+  ComputeGraphLayout(graph, v_graph);
 
   if (SDL_Init(SDL_INIT_VIDEO) != 0) {
     std::cerr << "SDL_Init Error: " << SDL_GetError() << std::endl;
@@ -344,7 +466,7 @@ int main(int argc, char** argv) {
       popup_outbound.clear();
       popup_click_rects.clear();
       if (selected_node >= 0) {
-          for (const auto& edge : graph.edges) {
+          for (const auto& edge : v_graph.visible_edges) {
               if (edge.to_index == selected_node) popup_inbound.push_back(edge.from_index);
               if (edge.from_index == selected_node) popup_outbound.push_back(edge.to_index);
           }
@@ -374,6 +496,17 @@ int main(int argc, char** argv) {
               for (const auto& pr : popup_click_rects) {
                   if (mouse_x >= pr.rect.fLeft && mouse_x <= pr.rect.fRight &&
                       mouse_y >= pr.rect.fTop && mouse_y <= pr.rect.fBottom) {
+                      
+                      // Walk up the hierarchy and expand everything
+                      int curr = pr.node_idx;
+                      while (curr != -1) {
+                          graph.nodes[curr].expanded = true;
+                          curr = graph.nodes[curr].parent_idx;
+                      }
+                      
+                      // Re-layout before flying
+                      CompileVisibleGraph(graph, v_graph);
+                      ComputeGraphLayout(graph, v_graph);
                       
                       // Fly to node
                       update_popup(pr.node_idx);
@@ -411,14 +544,24 @@ int main(int argc, char** argv) {
               float mouse_graph_y = (event.button.y - pan_y) / zoom;
 
               int new_selection = -1;
-              for (int i = 0; i < (int)graph.nodes.size(); ++i) {
-                const auto& node = graph.nodes[i];
+              // Iterate in reverse for painter's algorithm hit testing
+              for (int i = (int)v_graph.visible_node_indices.size() - 1; i >= 0; --i) {
+                int node_idx = v_graph.visible_node_indices[i];
+                const auto& node = graph.nodes[node_idx];
                 if (mouse_graph_x >= node.x - node.width/2 && mouse_graph_x <= node.x + node.width/2 &&
                     mouse_graph_y >= node.y - node.height/2 && mouse_graph_y <= node.y + node.height/2) {
-                  new_selection = i;
+                  new_selection = node_idx;
                   break;
                 }
               }
+              
+              if (new_selection != -1 && graph.nodes[new_selection].is_folder) {
+                  // Toggle folder expansion
+                  graph.nodes[new_selection].expanded = !graph.nodes[new_selection].expanded;
+                  CompileVisibleGraph(graph, v_graph);
+                  ComputeGraphLayout(graph, v_graph);
+              }
+              
               update_popup(new_selection);
           }
         }
@@ -437,11 +580,12 @@ int main(int argc, char** argv) {
         float mouse_graph_x = (event.motion.x - pan_x) / zoom;
         float mouse_graph_y = (event.motion.y - pan_y) / zoom;
         hovered_node = -1;
-        for (int i = 0; i < (int)graph.nodes.size(); ++i) {
-          const auto& node = graph.nodes[i];
+        for (int i = (int)v_graph.visible_node_indices.size() - 1; i >= 0; --i) {
+          int node_idx = v_graph.visible_node_indices[i];
+          const auto& node = graph.nodes[node_idx];
           if (mouse_graph_x >= node.x - node.width/2 && mouse_graph_x <= node.x + node.width/2 &&
               mouse_graph_y >= node.y - node.height/2 && mouse_graph_y <= node.y + node.height/2) {
-            hovered_node = i;
+            hovered_node = node_idx;
             break;
           }
         }
@@ -545,10 +689,11 @@ int main(int argc, char** argv) {
     float vis_max_y = (win_height - pan_y) / zoom + 200.0f;
 
     std::vector<bool> node_visible(graph.nodes.size(), false);
-    for (int i = 0; i < (int)graph.nodes.size(); ++i) {
-      if (graph.nodes[i].x >= vis_min_x && graph.nodes[i].x <= vis_max_x &&
-          graph.nodes[i].y >= vis_min_y && graph.nodes[i].y <= vis_max_y) {
-        node_visible[i] = true;
+    for (int i = 0; i < (int)v_graph.visible_node_indices.size(); ++i) {
+      int idx = v_graph.visible_node_indices[i];
+      if (graph.nodes[idx].x >= vis_min_x && graph.nodes[idx].x <= vis_max_x &&
+          graph.nodes[idx].y >= vis_min_y && graph.nodes[idx].y <= vis_max_y) {
+        node_visible[idx] = true;
       }
     }
 
@@ -557,7 +702,7 @@ int main(int argc, char** argv) {
     edge_paint.setAntiAlias(zoom >= 0.15f);
 
     if (zoom >= 0.15f || selected_node >= 0) {
-      for (const auto& edge : graph.edges) {
+      for (const auto& edge : v_graph.visible_edges) {
         bool is_highlighted = (selected_node >= 0 && (edge.from_index == selected_node || edge.to_index == selected_node));
         
         // Skip normal edges if we are strongly zoomed out unless highlighted
@@ -580,10 +725,10 @@ int main(int argc, char** argv) {
         }
 
         float control_y = (src.y + dst.y) / 2.0f;
-      SkPathBuilder builder;
-      builder.moveTo(src.x, src.y);
-      builder.cubicTo(src.x, control_y, dst.x, control_y, dst.x, dst.y);
-      SkPath path = builder.detach();
+        SkPathBuilder builder;
+        builder.moveTo(src.x, src.y);
+        builder.cubicTo(src.x, control_y, dst.x, control_y, dst.x, dst.y);
+        SkPath path = builder.detach();
 
         edge_paint.setStyle(SkPaint::kStroke_Style);
         canvas->drawPath(path, edge_paint);
@@ -600,12 +745,13 @@ int main(int argc, char** argv) {
     
     SkFont font(global_typeface, 12.0f);
 
-    for (int i = 0; i < (int)graph.nodes.size(); ++i) {
-      const auto& node = graph.nodes[i];
+    for (int i = 0; i < (int)v_graph.visible_node_indices.size(); ++i) {
+      int idx = v_graph.visible_node_indices[i];
+      const auto& node = graph.nodes[idx];
 
       // Viewport culling
       if (node.x < vis_min_x || node.x > vis_max_x || node.y < vis_min_y || node.y > vis_max_y) {
-        if (i != selected_node && i != hovered_node) continue;
+        if (idx != selected_node && idx != hovered_node) continue;
       }
 
       SkRect rect = SkRect::MakeXYWH(node.x - node.width/2, node.y - node.height/2, node.width, node.height);
@@ -616,34 +762,34 @@ int main(int argc, char** argv) {
       node_paint.setStyle(SkPaint::kFill_Style);
       node_paint.setColor(node.color);
 
-      if (i == selected_node) {
+      if (idx == selected_node) {
         node_paint.setColor(SkColorSetRGB(255, 193, 7)); // Amber highlight
-      } else if (i == hovered_node) {
+      } else if (idx == hovered_node) {
         node_paint.setColor(SkColorSetRGB(64, 196, 255)); // Light blue highlight
       }
 
       canvas->drawRoundRect(rect, 8.0f, 8.0f, node_paint);
 
       // Node border
-      if (zoom >= 0.2f || i == selected_node || i == hovered_node) {
+      if (zoom >= 0.2f || idx == selected_node || idx == hovered_node) {
         SkPaint border_paint;
         border_paint.setAntiAlias(true);
         border_paint.setStyle(SkPaint::kStroke_Style);
         border_paint.setColor(SkColorSetRGB(40, 40, 40));
-        border_paint.setStrokeWidth(i == selected_node ? 3.0f : 1.0f);
+        border_paint.setStrokeWidth(idx == selected_node ? 3.0f : (node.is_folder ? 2.0f : 1.0f));
         canvas->drawRoundRect(rect, 8.0f, 8.0f, border_paint);
       }
 
-      // Node label (LOD: skip text when zoomed far out for speed)
-      if (zoom >= 0.25f || i == selected_node || i == hovered_node) {
+      // Node label (LOD: skip text when zoomed far out for speed, unless folder)
+      if (zoom >= 0.25f || idx == selected_node || idx == hovered_node || (node.is_folder && zoom >= 0.05f)) {
         SkPaint text_paint;
         text_paint.setColor(SK_ColorWHITE);
         text_paint.setAntiAlias(true);
 
         std::string label = node.name;
-        if (label.size() > 18) label = label.substr(0, 16) + "..";
+        if (!node.is_folder && label.size() > 18) label = label.substr(0, 16) + "..";
 
-        canvas->drawString(label.c_str(), node.x - node.width/2 + 10.0f, node.y + 4.0f, font, text_paint);
+        canvas->drawString(label.c_str(), node.x - node.width/2 + 10.0f, node.y + (node.is_folder ? 6.0f : 4.0f), font, text_paint);
       }
     }
 
