@@ -435,9 +435,46 @@ int main(int argc, char** argv) {
   }
 
   // Camera state
-    float pan_x = 0;
-    float pan_y = 0;
-    float zoom = 0.05f;
+  float pan_x = 0;
+  float pan_y = 0;
+  float zoom = 1.0f;
+
+  auto fit_camera_to_bounds = [&]() {
+      float min_x = std::numeric_limits<float>::max();
+      float max_x = std::numeric_limits<float>::lowest();
+      float min_y = std::numeric_limits<float>::max();
+      float max_y = std::numeric_limits<float>::lowest();
+
+      for (int idx : v_graph.visible_node_indices) {
+          float hx = graph.nodes[idx].width / 2.0f;
+          float hy = graph.nodes[idx].height / 2.0f;
+          min_x = std::min(min_x, graph.nodes[idx].x - hx);
+          max_x = std::max(max_x, graph.nodes[idx].x + hx);
+          min_y = std::min(min_y, graph.nodes[idx].y - hy);
+          max_y = std::max(max_y, graph.nodes[idx].y + hy);
+      }
+
+      if (max_x > min_x && max_y > min_y) {
+          float bounds_w = max_x - min_x + 300.0f; // 150 padding L/R
+          float bounds_h = max_y - min_y + 300.0f;
+          float zoom_x = (float)win_width / bounds_w;
+          float zoom_y = (float)win_height / bounds_h;
+          zoom = std::min(zoom_x, zoom_y);
+          if (zoom > 1.2f) zoom = 1.2f;
+          if (zoom < 0.02f) zoom = 0.02f;
+
+          float cx = (min_x + max_x) / 2.0f;
+          float cy = (min_y + max_y) / 2.0f;
+          pan_x = win_width / 2.0f - cx * zoom;
+          pan_y = win_height / 2.0f - cy * zoom;
+      } else {
+          pan_x = win_width / 2.0f;
+          pan_y = win_height / 2.0f;
+          zoom = 1.0f;
+      }
+  };
+
+  fit_camera_to_bounds();
   bool dragging = false;
   int drag_start_x = 0;
   int drag_start_y = 0;
@@ -595,10 +632,9 @@ int main(int argc, char** argv) {
         zoom = std::max(0.05f, std::min(5.0f, zoom));
       } else if (event.type == SDL_KEYDOWN) {
         if (event.key.keysym.sym == SDLK_r) {
-          pan_x = 0;
-          pan_y = 0;
-          zoom = 0.05f;
+          fit_camera_to_bounds();
           selected_node = -1;
+          update_popup(-1);
         } else if (event.key.keysym.sym == SDLK_p) {
           SDL_SaveBMP(SDL_GetWindowSurface(window), "/tmp/vis_screenshot.bmp");
           std::cerr << "Saved screenshot to /tmp/vis_screenshot.bmp" << std::endl;
