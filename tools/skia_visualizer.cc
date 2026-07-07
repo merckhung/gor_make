@@ -627,17 +627,16 @@ int main(int argc, char** argv) {
               drag_start_x = event.button.x;
               drag_start_y = event.button.y;
 
-              if (new_selection != -1) {
-                  if (graph.nodes[new_selection].is_folder) {
-                      // Toggle folder expansion
-                      graph.nodes[new_selection].expanded = !graph.nodes[new_selection].expanded;
-                      CompileVisibleGraph(graph, v_graph);
-                      ComputeGraphLayout(graph, v_graph);
-                  }
-              } else {
-                  // Clicked empty space on left click, cancel popup
-                  update_popup(-1);
+              if (new_selection != -1 && graph.nodes[new_selection].is_folder) {
+                  // Toggle folder expansion
+                  graph.nodes[new_selection].expanded = !graph.nodes[new_selection].expanded;
+                  CompileVisibleGraph(graph, v_graph);
+                  ComputeGraphLayout(graph, v_graph);
               }
+              
+              // Clicked on a target node, a folder node, or empty space with left click 
+              // (and missed the HUD popup) -> always cancel the active popup selection
+              update_popup(-1);
           }
         } else if (event.button.button == SDL_BUTTON_RIGHT) {
             // Right click shows popup window
