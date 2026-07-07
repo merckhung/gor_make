@@ -281,7 +281,25 @@ void BuildFolderHierarchy(Graph& graph) {
       folder_node.is_folder = true;
       folder_node.expanded = false; // Initially collapsed
       folder_node.parent_idx = parent_idx;
-      folder_node.color = SkColorSetRGB(33, 150, 243);
+      int level = 0;
+      for (char c : path) {
+          if (c == '/') level++;
+      }
+      
+      // Distinct material-design colors for each folder level/depth
+      static const SkColor level_colors[] = {
+          SkColorSetRGB(33, 150, 243),  // 0: Blue (Top-level)
+          SkColorSetRGB(76, 175, 80),   // 1: Green
+          SkColorSetRGB(255, 152, 0),   // 2: Orange
+          SkColorSetRGB(156, 39, 176),  // 3: Purple
+          SkColorSetRGB(0, 188, 212),   // 4: Cyan
+          SkColorSetRGB(233, 30, 99),   // 5: Pink
+          SkColorSetRGB(121, 85, 72),   // 6: Brown
+          SkColorSetRGB(96, 125, 139)   // 7+: Blue Grey
+      };
+      
+      int color_idx = std::min(level, 7);
+      folder_node.color = level_colors[color_idx];
 
       int idx = graph.nodes.size();
       graph.nodes.push_back(folder_node);
