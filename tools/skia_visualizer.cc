@@ -322,6 +322,35 @@ int main(int argc, char** argv) {
   int selected_node = -1;
   int hovered_node = -1;
 
+  bool is_animating = false;
+  uint32_t anim_start_time = 0;
+  uint32_t anim_duration_ms = 0;
+  float path_start_x = 0;
+  float path_start_y = 0;
+  float path_target_x = 0;
+  float path_target_y = 0;
+
+  struct PopupRect {
+      int node_idx;
+      SkRect rect;
+  };
+  std::vector<PopupRect> popup_click_rects;
+  std::vector<int> popup_inbound;
+  std::vector<int> popup_outbound;
+
+  auto update_popup = [&](int new_selected_node) {
+      selected_node = new_selected_node;
+      popup_inbound.clear();
+      popup_outbound.clear();
+      popup_click_rects.clear();
+      if (selected_node >= 0) {
+          for (const auto& edge : graph.edges) {
+              if (edge.to_index == selected_node) popup_inbound.push_back(edge.from_index);
+              if (edge.from_index == selected_node) popup_outbound.push_back(edge.to_index);
+          }
+      }
+  };
+
   bool running = true;
   SDL_Event event;
 
@@ -337,21 +366,60 @@ int main(int argc, char** argv) {
         }
       } else if (event.type == SDL_MOUSEBUTTONDOWN) {
         if (event.button.button == SDL_BUTTON_LEFT) {
-          dragging = true;
-          drag_start_x = event.button.x;
-          drag_start_y = event.button.y;
+          float mouse_x = event.button.x;
+          float mouse_y = event.button.y;
 
-          float mouse_graph_x = (event.button.x - pan_x) / zoom;
-          float mouse_graph_y = (event.button.y - pan_y) / zoom;
+          bool clicked_popup = false;
+          if (selected_node >= 0) {
+              for (const auto& pr : popup_click_rects) {
+                  if (mouse_x >= pr.rect.fLeft && mouse_x <= pr.rect.fRight &&
+                      mouse_y >= pr.rect.fTop && mouse_y <= pr.rect.fBottom) {
+                      
+                      // Fly to node
+                      update_popup(pr.node_idx);
+                      
+                      float curr_pan_x = pan_x;
+                      float curr_pan_y = pan_y;
+                      float target_pan_x = win_width / 2.0f - graph.nodes[pr.node_idx].x * zoom;
+                      float target_pan_y = win_height / 2.0f - graph.nodes[pr.node_idx].y * zoom;
 
-          selected_node = -1;
-          for (int i = 0; i < (int)graph.nodes.size(); ++i) {
-            const auto& node = graph.nodes[i];
-            if (mouse_graph_x >= node.x - node.width/2 && mouse_graph_x <= node.x + node.width/2 &&
-                mouse_graph_y >= node.y - node.height/2 && mouse_graph_y <= node.y + node.height/2) {
-              selected_node = i;
-              break;
-            }
+                      // Make distance calculation relative to zoom scale so flying across wide maps takes longer
+                      float dist = std::sqrt(std::pow(target_pan_x - curr_pan_x, 2) + std::pow(target_pan_y - curr_pan_y, 2));
+                      float duration = std::max(1000.0f, dist * 0.5f); // 1.0 second minimum, scales up to distance
+                      if (duration > 4000.0f) duration = 4000.0f; // Max 4 seconds
+
+                      path_start_x = curr_pan_x;
+                      path_start_y = curr_pan_y;
+                      path_target_x = target_pan_x;
+                      path_target_y = target_pan_y;
+                      anim_start_time = SDL_GetTicks();
+                      anim_duration_ms = duration;
+                      is_animating = true;
+                      
+                      clicked_popup = true;
+                      break;
+                  }
+              }
+          }
+
+          if (!clicked_popup) {
+              dragging = true;
+              drag_start_x = event.button.x;
+              drag_start_y = event.button.y;
+
+              float mouse_graph_x = (event.button.x - pan_x) / zoom;
+              float mouse_graph_y = (event.button.y - pan_y) / zoom;
+
+              int new_selection = -1;
+              for (int i = 0; i < (int)graph.nodes.size(); ++i) {
+                const auto& node = graph.nodes[i];
+                if (mouse_graph_x >= node.x - node.width/2 && mouse_graph_x <= node.x + node.width/2 &&
+                    mouse_graph_y >= node.y - node.height/2 && mouse_graph_y <= node.y + node.height/2) {
+                  new_selection = i;
+                  break;
+                }
+              }
+              update_popup(new_selection);
           }
         }
       } else if (event.type == SDL_MOUSEBUTTONUP) {
@@ -425,6 +493,20 @@ int main(int argc, char** argv) {
     static SkBitmap bitmap;
     static std::unique_ptr<SkCanvas> canvas;
     
+    uint32_t current_time = SDL_GetTicks();
+    if (is_animating) {
+        float t = (float)(current_time - anim_start_time) / anim_duration_ms;
+        if (t >= 1.0f) {
+            t = 1.0f;
+            is_animating = false;
+        }
+        // Cubic ease in-out
+        float u = t < 0.5f ? 4.0f * t * t * t : 1.0f - std::pow(-2.0f * t + 2.0f, 3.0f) / 2.0f;
+        
+        pan_x = path_start_x + (path_target_x - path_start_x) * u;
+        pan_y = path_start_y + (path_target_y - path_start_y) * u;
+    }
+
     if (bitmap.width() != win_width || bitmap.height() != win_height) {
         bitmap.allocN32Pixels(win_width, win_height);
         canvas = std::make_unique<SkCanvas>(bitmap);
@@ -601,6 +683,62 @@ int main(int argc, char** argv) {
       canvas->drawString(("Source Dir: " + snode.src_dir).c_str(), 35.0f, win_height - 55.0f, hud_font, hud_text);
       canvas->drawString(("Dependencies: " + std::to_string(snode.raw_deps.size()) + " target(s)").c_str(), 35.0f, win_height - 35.0f, hud_font, hud_text);
     }
+
+    // Node connections pop-up
+    popup_click_rects.clear();
+    if (selected_node >= 0 && selected_node < (int)graph.nodes.size()) {
+        float popup_w = 400.0f;
+        float popup_h = 40.0f + popup_inbound.size() * 20.0f + popup_outbound.size() * 20.0f;
+        if (popup_h > win_height - 100) popup_h = win_height - 100;
+
+        const auto& snode = graph.nodes[selected_node];
+        float popup_x = snode.x * zoom + pan_x + (snode.width / 2.0f) * zoom + 10.0f;
+        float popup_y = snode.y * zoom + pan_y - popup_h / 2.0f;
+
+        // Clamp popup to window boundaries
+        if (popup_x + popup_w > win_width - 10.0f) popup_x = win_width - popup_w - 10.0f;
+        if (popup_y + popup_h > win_height - 10.0f) popup_y = win_height - popup_h - 10.0f;
+        if (popup_x < 10.0f) popup_x = 10.0f;
+        if (popup_y < 80.0f) popup_y = 80.0f; // leave room for top HUD
+        
+        canvas->drawRect(SkRect::MakeXYWH(popup_x, popup_y, popup_w, popup_h), hud_bg);
+        
+        hud_font.setSize(14.0f);
+        hud_text.setColor(SkColorSetRGB(255, 193, 7));
+        canvas->drawString("Node Connections (Click to fly):", popup_x + 15.0f, popup_y + 25.0f, hud_font, hud_text);
+        
+        hud_font.setSize(12.0f);
+        float current_y = popup_y + 45.0f;
+        
+        hud_text.setColor(SkColorSetRGB(100, 255, 100));
+        for (int in_node : popup_inbound) {
+            if (current_y > popup_y + popup_h - 10.0f) break; // clamp rendering
+            std::string label = "<- " + graph.nodes[in_node].name;
+            canvas->drawString(label.c_str(), popup_x + 15.0f, current_y, hud_font, hud_text);
+            
+            PopupRect pr;
+            pr.node_idx = in_node;
+            pr.rect = SkRect::MakeXYWH(popup_x + 10.0f, current_y - 12.0f, popup_w - 20.0f, 16.0f);
+            popup_click_rects.push_back(pr);
+            
+            current_y += 20.0f;
+        }
+        
+        hud_text.setColor(SkColorSetRGB(255, 100, 100));
+        for (int out_node : popup_outbound) {
+            if (current_y > popup_y + popup_h - 10.0f) break;
+            std::string label = "-> " + graph.nodes[out_node].name;
+            canvas->drawString(label.c_str(), popup_x + 15.0f, current_y, hud_font, hud_text);
+            
+            PopupRect pr;
+            pr.node_idx = out_node;
+            pr.rect = SkRect::MakeXYWH(popup_x + 10.0f, current_y - 12.0f, popup_w - 20.0f, 16.0f);
+            popup_click_rects.push_back(pr);
+            
+            current_y += 20.0f;
+        }
+    }
+
     canvas->restore();
     
     SDL_Surface* window_surface = SDL_GetWindowSurface(window);
