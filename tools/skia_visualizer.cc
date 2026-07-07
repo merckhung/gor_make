@@ -689,20 +689,20 @@ int main(int argc, char** argv) {
             case SDLK_s:
               pan_y -= 50.0f;
               break;
+            case SDLK_LEFT:
             case SDLK_a:
               pan_x += 50.0f;
               break;
+            case SDLK_RIGHT:
             case SDLK_d:
               pan_x -= 50.0f;
               break;
             case SDLK_UP:
-            case SDLK_RIGHT:
             case SDLK_PLUS:
             case SDLK_EQUALS:
               zoom *= 1.15f;
               break;
             case SDLK_DOWN:
-            case SDLK_LEFT:
             case SDLK_MINUS:
               zoom *= 0.85f;
               break;
