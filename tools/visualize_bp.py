@@ -232,12 +232,10 @@ def draw_dependency_graph(nodes, edges, positions, node_set, filepath):
         circle = plt.Circle((x, y), 0.012, color=color, zorder=5, ec='#333333', lw=0.5)
         ax.add_patch(circle)
 
-        # Node label (shortened if too long)
+        # Node label (full target name)
         label = name
-        if len(label) > 25:
-            label = label[:22] + '...'
         ax.text(x, y - 0.018, label, fontsize=5.5, ha='center', va='top',
-                fontfamily='monospace', alpha=0.8)
+                fontfamily='monospace', alpha=0.9, fontweight='bold')
 
     # Legend
     legend_items = [
